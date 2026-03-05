@@ -147,7 +147,7 @@ npm run tauri build
 
 - [Tauri](https://tauri.app/) - 轻量级桌面框架
 - [OpenVINO™](https://docs.openvino.ai/) - Intel AI 推理引擎
-- [图吧工具箱](https://tubatool.com.cn/) - 设计灵感来源
+- [图吧工具箱](https://tbtool.dawnstd.cn/) - 设计灵感来源
 - 所有开源贡献者
 
 ---
