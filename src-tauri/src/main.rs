@@ -1,0 +1,50 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod commands;
+
+use log::info;
+use tauri::Manager;
+
+fn main() {
+    // Initialize logger
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .init();
+    
+    info!("NPU Toolbox starting...");
+    
+    tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .invoke_handler(tauri::generate_handler![
+            // Hardware info
+            commands::get_hardware_info,
+            commands::get_npu_status,
+            commands::detect_npu,
+            commands::get_system_info,
+            commands::get_storage_info,
+            // Tool management
+            commands::get_tools_list,
+            commands::download_tool,
+            commands::launch_tool,
+            // Cache management
+            commands::cleanup_cache,
+            // Settings management
+            commands::save_settings,
+            commands::load_settings,
+        ])
+        .setup(|app| {
+            info!("Application initialized");
+            
+            // Setup window
+            if let Some(window) = app.get_webview_window("main") {
+                window.set_title("NPU Toolbox").ok();
+                #[cfg(debug_assertions)]
+                {
+                    window.open_devtools();
+                }
+            }
+            
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("Failed to start application");
+}
