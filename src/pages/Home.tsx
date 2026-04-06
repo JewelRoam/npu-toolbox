@@ -203,9 +203,25 @@ export function Home() {
       {/* Hardware Summary */}
       {hardwareInfo && (
         <div className="grid grid-cols-4 gap-4">
-          <InfoCard label="CPU" value={hardwareInfo.cpu.name} sub={`${hardwareInfo.cpu.cores} 核心 / ${hardwareInfo.cpu.threads} 线程`} />
-          <InfoCard label="GPU" value={hardwareInfo.gpu.name} sub={hardwareInfo.gpu.vram} />
-          <InfoCard label="内存" value={hardwareInfo.memory.total} sub={`使用率: ${hardwareInfo.memory.usage}%`} />
+          <InfoCard
+            label="CPU"
+            value={hardwareInfo.cpu.name}
+            sub={`${hardwareInfo.cpu.cores}C/${hardwareInfo.cpu.threads}T · ${hardwareInfo.cpu.usage}%`}
+            bar={hardwareInfo.cpu.usage}
+          />
+          <InfoCard
+            label="GPU"
+            value={hardwareInfo.gpu.name}
+            sub={`${hardwareInfo.gpu.vram} · ${hardwareInfo.gpu.usage}%`}
+            bar={hardwareInfo.gpu.usage}
+          />
+          <InfoCard
+            label="内存"
+            value={hardwareInfo.memory.total}
+            sub={`${hardwareInfo.memory.used} / ${hardwareInfo.memory.total}`}
+            bar={hardwareInfo.memory.usage}
+            barColor="green"
+          />
           <InfoCard label="存储" value={`${hardwareInfo.storage.length} 个磁盘`} sub={hardwareInfo.storage[0]?.size || 'N/A'} />
         </div>
       )}
@@ -251,12 +267,17 @@ export function Home() {
   )
 }
 
-function InfoCard({ label, value, sub }: { label: string; value: string; sub: string }) {
+function InfoCard({ label, value, sub, bar, barColor = 'primary' }: { label: string; value: string; sub: string; bar?: number; barColor?: 'primary' | 'green' }) {
   return (
     <div className="p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</p>
       <p className="font-medium text-gray-900 dark:text-white truncate">{value}</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400">{sub}</p>
+      {bar !== undefined && (
+        <div className="mt-2 h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+          <div className={`h-full rounded-full ${barColor === 'green' ? 'bg-green-500' : 'bg-primary-500'}`} style={{ width: `${bar}%` }} />
+        </div>
+      )}
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{sub}</p>
     </div>
   )
 }
