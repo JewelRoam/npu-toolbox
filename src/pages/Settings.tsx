@@ -39,13 +39,13 @@ export function Settings() {
         const json = await invoke<string>('load_settings')
         const loaded = JSON.parse(json) as AppSettings
         updateSettings(loaded)
-      } catch {
-        // Keep store defaults
-      }
 
-      try {
-        const bytes = await invoke<number>('get_cache_size', { cachePath: settings.cachePath })
-        setCacheSize(formatBytes(bytes))
+        try {
+          const bytes = await invoke<number>('get_cache_size', { cachePath: loaded.cachePath })
+          setCacheSize(formatBytes(bytes))
+        } catch {
+          setCacheSize('无法计算')
+        }
       } catch {
         setCacheSize('无法计算')
       }

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use log::{info, warn};
-use std::process::Command;
+use crate::ps;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NPUStatus {
@@ -17,22 +17,9 @@ pub struct NPUStatus {
 pub struct NPUDetector;
 
 impl NPUDetector {
-    /// Run PowerShell command and return output
+    /// Run PowerShell command and return output (delegates to shared module).
     fn run_powershell(script: &str) -> Result<String, String> {
-        match Command::new("powershell")
-            .args(["-NoProfile", "-Command", script])
-            .output()
-        {
-            Ok(output) => {
-                if output.status.success() {
-                    Ok(String::from_utf8_lossy(&output.stdout).to_string())
-                } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    Err(format!("PowerShell error: {}", stderr))
-                }
-            }
-            Err(e) => Err(format!("Failed to run PowerShell: {}", e)),
-        }
+        ps::run_strict(script)
     }
 
     /// Detect NPU using CIM (Common Information Model) queries

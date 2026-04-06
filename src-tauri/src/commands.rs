@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::process::Command;
 use log::{info, warn};
 
-// Import NPU detector from crate root (declared in main.rs)
 use crate::npu_detector::{NPUDetector, NPUStatus};
+use crate::ps;
 
 // ============ Data Structures ============
 
@@ -72,40 +72,11 @@ pub struct SystemInfo {
 
 // ============ Helper Functions ============
 
-/// Execute PowerShell command and return output
-fn run_powershell(script: &str) -> Result<String, String> {
-    let output = Command::new("powershell")
-        .args(["-NoProfile", "-Command", script])
-        .output()
-        .map_err(|e| format!("PowerShell execution failed: {}", e))?;
-    
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    
-    if !stderr.is_empty() {
-        warn!("PowerShell stderr: {}", stderr);
-    }
-    
-    Ok(stdout)
-}
-
-/// Get CPU temperature via WMI, returns None if unavailable
+/// Get CPU temperature using multiple fallback methods.
+/// Returns -1.0 if unavailable.
 fn get_cpu_temperature() -> f32 {
-    // Method 1: MSAcpi_ThermalZoneTemperature (most common, may need admin)
     let script = r#"
-        try {
-            $temps = Get-CimInstance -Namespace "root/wmi" -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction Stop
-            if ($temps) {
-                # Temperature is in tenths of Kelvin, convert to Celsius
-                $maxTemp = ($temps | ForEach-Object { ($_.CurrentTemperature - 2732) / 10 } | Measure-Object -Maximum).Maximum
-                if ($maxTemp -and $maxTemp -gt 0) {
-                    Write-Output "TEMP=$([math]::Round($maxTemp, 1))"
-                    exit 0
-                }
-            }
-        } catch {}
-
-        # Method 2: Try Win32_PerfFormattedData_Counters_ThermalZoneInformation
+        # Method 1: Performance counter thermal zone (no admin needed)
         try {
             $thermal = Get-CimInstance -ClassName Win32_PerfFormattedData_Counters_ThermalZoneInformation -ErrorAction Stop
             if ($thermal) {
@@ -117,7 +88,19 @@ fn get_cpu_temperature() -> f32 {
             }
         } catch {}
 
-        # Method 3: Try OpenHardwareMonitor-style registry keys
+        # Method 2: MSAcpi_ThermalZoneTemperature (may need admin)
+        try {
+            $temps = Get-CimInstance -Namespace "root/wmi" -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction Stop
+            if ($temps) {
+                $maxTemp = ($temps | ForEach-Object { ($_.CurrentTemperature - 2732) / 10 } | Measure-Object -Maximum).Maximum
+                if ($maxTemp -and $maxTemp -gt 0) {
+                    Write-Output "TEMP=$([math]::Round($maxTemp, 1))"
+                    exit 0
+                }
+            }
+        } catch {}
+
+        # Method 3: Registry-based thermal comfort (Windows 11+)
         try {
             $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\thermalcomfort\ThermalZones"
             if (Test-Path $regPath) {
@@ -135,7 +118,7 @@ fn get_cpu_temperature() -> f32 {
         Write-Output "TEMP=-1"
     "#;
 
-    if let Ok(output) = run_powershell(script) {
+    if let Ok(output) = ps::run(script) {
         for line in output.lines() {
             if line.starts_with("TEMP=") {
                 if let Ok(temp) = line[5..].trim().parse::<f32>() {
@@ -146,7 +129,7 @@ fn get_cpu_temperature() -> f32 {
             }
         }
     }
-    -1.0 // Indicate temperature unavailable
+    -1.0
 }
 
 /// Get real CPU information
@@ -179,7 +162,7 @@ async fn get_cpu_info() -> Result<CPUInfo, String> {
         }
     "#;
     
-    match run_powershell(script) {
+    match ps::run(script) {
         Ok(output) => {
             let lines: Vec<&str> = output.lines().collect();
             let mut name = String::new();
@@ -251,7 +234,7 @@ async fn get_gpu_info() -> Result<GPUInfo, String> {
         }
     "#;
     
-    match run_powershell(script) {
+    match ps::run(script) {
         Ok(output) => {
             let lines: Vec<&str> = output.lines().collect();
             let mut name = String::new();
@@ -317,7 +300,7 @@ async fn get_memory_info() -> Result<MemoryInfo, String> {
         }
     "#;
     
-    match run_powershell(script) {
+    match ps::run(script) {
         Ok(output) => {
             let lines: Vec<&str> = output.lines().collect();
             let mut total = String::new();
@@ -387,7 +370,7 @@ async fn get_storage_list() -> Result<Vec<StorageInfo>, String> {
         }
     "#;
     
-    match run_powershell(script) {
+    match ps::run(script) {
         Ok(output) => {
             let output = output.trim();
             if output.starts_with("ERROR=") || output.is_empty() {
@@ -418,8 +401,6 @@ async fn get_storage_list() -> Result<Vec<StorageInfo>, String> {
         Err(e) => Err(e),
     }
 }
-
-/// Detect NPU using multiple methods
 
 // ============ Command Implementations ============
 
@@ -473,7 +454,7 @@ pub async fn get_system_info() -> Result<SystemInfo, String> {
         }
     "#;
     
-    match run_powershell(script) {
+    match ps::run(script) {
         Ok(output) => {
             let lines: Vec<&str> = output.lines().collect();
             let mut os_version = String::new();
@@ -571,7 +552,7 @@ pub async fn download_tool(tool_id: String, download_url: String, save_path: Str
         download_url, file_path
     );
     
-    run_powershell(&script)?;
+    ps::run(&script)?;
     
     info!("Tool {} download completed", tool_id);
     Ok(format!("Download completed: {}", file_path))
@@ -692,7 +673,7 @@ pub async fn save_settings(settings_json: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Load settings from file
+/// Load settings from file, returning sensible defaults with absolute paths.
 #[tauri::command]
 pub async fn load_settings() -> Result<String, String> {
     let config_file = dirs::config_dir()
@@ -701,7 +682,21 @@ pub async fn load_settings() -> Result<String, String> {
         .join("settings.json");
     
     if !config_file.exists() {
-        return Ok(r#"{"theme":"light","language":"zh-CN","autoCheckUpdates":true,"downloadPath":"./downloads","cachePath":"./cache"}"#.to_string());
+        let download_dir = dirs::download_dir()
+            .or_else(dirs::home_dir)
+            .unwrap_or_default()
+            .join("NPUToolbox");
+        let cache_dir = dirs::cache_dir()
+            .unwrap_or_default()
+            .join("NPUToolbox");
+        let defaults = serde_json::json!({
+            "theme": "light",
+            "language": "zh-CN",
+            "autoCheckUpdates": true,
+            "downloadPath": download_dir.to_string_lossy(),
+            "cachePath": cache_dir.to_string_lossy(),
+        });
+        return Ok(defaults.to_string());
     }
     
     let content = std::fs::read_to_string(&config_file).map_err(|e| e.to_string())?;

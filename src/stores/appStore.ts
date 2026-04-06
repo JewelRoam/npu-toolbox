@@ -93,14 +93,21 @@ export const useAppStore = create<AppState>()(
         downloadTask: get().downloadTask ? { ...get().downloadTask!, progress, speed } : null
       }),
 
-      settings: { theme: 'dark', language: 'zh-CN', autoCheckUpdates: true, downloadPath: './downloads', cachePath: './cache' },
+      settings: { theme: 'light', language: 'zh-CN', autoCheckUpdates: true, downloadPath: '', cachePath: '' },
       updateSettings: (settings) => set({ settings: { ...get().settings, ...settings } }),
 
       initialize: async () => {
+        // Load settings from backend (source of truth)
+        try {
+          const json = await invoke<string>('load_settings')
+          const loaded = JSON.parse(json) as AppSettings
+          set({ settings: loaded })
+        } catch { /* keep defaults */ }
+
         await get().checkNPU()
         await get().refreshHardware()
       }
     }),
-    { name: 'npu-toolbox-storage', partialize: (state) => ({ settings: state.settings, tools: state.tools }) }
+    { name: 'npu-toolbox-storage', partialize: (state) => ({ tools: state.tools }) }
   )
 )

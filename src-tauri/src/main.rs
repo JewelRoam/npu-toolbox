@@ -3,6 +3,7 @@
 mod commands;
 mod npu_detector;
 mod openvino;
+mod ps;
 
 use log::info;
 use tauri::Manager;
