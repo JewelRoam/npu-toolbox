@@ -41,6 +41,7 @@ fn main() {
             openvino::detect_openvino,
             openvino::get_recommended_models,
             openvino::get_install_instructions,
+            openvino::test_openvino_inference,
         ])
         .setup(|app| {
             info!("Application initialized");
