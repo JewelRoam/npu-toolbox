@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { RefreshCw, Cpu, MemoryStick, HardDrive, Thermometer } from 'lucide-react'
+import { Cpu, MemoryStick, HardDrive, Thermometer } from 'lucide-react'
 import { tempColor } from '../utils/tempColor'
 
 interface HardwareInfo {
@@ -23,19 +23,9 @@ function TempBadge({ temp }: { temp: number }) {
 
 export function Header() {
   const [info, setInfo] = useState<HardwareInfo | null>(null)
-  const [loading, setLoading] = useState(false)
-
-  const refresh = async () => {
-    setLoading(true)
-    try {
-      setInfo(await invoke<HardwareInfo>('get_hardware_info'))
-    } catch {
-      setInfo(null)
-    }
-    setLoading(false)
-  }
-
-  useEffect(() => { refresh() }, [])
+  useEffect(() => {
+    invoke<HardwareInfo>('get_hardware_info').then(setInfo).catch(() => setInfo(null))
+  }, [])
 
   // Pick the system drive (C:) for the header badge
   const systemDrive = info?.storage.find(s => s.name === 'C:') ?? info?.storage[0]
@@ -95,14 +85,6 @@ export function Header() {
         )}
       </div>
 
-      <button
-        onClick={refresh}
-        disabled={loading}
-        className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors shrink-0"
-        title="刷新硬件信息"
-      >
-        <RefreshCw className={`w-4 h-4 text-gray-500 dark:text-gray-400 ${loading ? 'animate-spin' : ''}`} />
-      </button>
     </header>
   )
 }

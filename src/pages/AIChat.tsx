@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { Send, Bot, User, Loader2, ChevronDown, AlertCircle, Plug, Square, Trash2, Copy, Check, Download } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Send, Bot, User, Loader2, ChevronDown, AlertCircle, Plug, Square, Trash2, Copy, Check, Download, CheckCircle, Package } from 'lucide-react'
 
 interface Model {
   name: string
@@ -26,6 +27,7 @@ let msgIdCounter = 0
 const nextId = () => `msg-${++msgIdCounter}`
 
 export function AIChat() {
+  const navigate = useNavigate()
   const [connected, setConnected] = useState<boolean | null>(null)
   const [models, setModels] = useState<Model[]>([])
   const [selectedModel, setSelectedModel] = useState('')
@@ -36,6 +38,11 @@ export function AIChat() {
   const [isLoading, setIsLoading] = useState(false)
   const [showModelMenu, setShowModelMenu] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [ollamaInstalled, setOllamaInstalled] = useState<boolean | null>(null)
+  const [installingOllama, setInstallingOllama] = useState(false)
+  const [installMessage, setInstallMessage] = useState('')
+  const [installPercent, setInstallPercent] = useState<number | null>(null)
+  const [installStage, setInstallStage] = useState<'download' | 'install' | 'done' | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const modelMenuRef = useRef<HTMLDivElement>(null)
 
@@ -73,6 +80,13 @@ export function AIChat() {
       setConnected(false)
       setModels([])
     }
+    // Also check if Ollama is installed (not just running)
+    try {
+      const installed = await invoke<boolean>('ollama_is_installed')
+      setOllamaInstalled(installed)
+    } catch {
+      setOllamaInstalled(null)
+    }
   }, [selectedModel])
 
   useEffect(() => {
@@ -80,6 +94,19 @@ export function AIChat() {
     const interval = setInterval(refreshConnection, 15000)
     return () => clearInterval(interval)
   }, [refreshConnection])
+
+  // Listen for install progress events
+  useEffect(() => {
+    const unlisten = listen<{ stage: string; message: string; percent: number | null }>(
+      'ollama-install-progress',
+      (event) => {
+        setInstallMessage(event.payload.message)
+        setInstallStage(event.payload.stage as 'download' | 'install' | 'done')
+        setInstallPercent(event.payload.percent)
+      },
+    )
+    return () => { unlisten.then(fn => fn()) }
+  }, [])
 
   // Listen for streaming chunks
   useEffect(() => {
@@ -154,6 +181,24 @@ export function AIChat() {
     setMessages([{ id: nextId(), role: 'assistant', content: '对话已清空。有什么可以帮你的？' }])
   }
 
+  const handleInstallOllama = async () => {
+    setInstallingOllama(true)
+    setInstallMessage('正在准备安装...')
+    try {
+      const result = await invoke<{ success: boolean; message: string }>('ollama_install')
+      setInstallMessage(result.message)
+      if (result.success) {
+        setOllamaInstalled(true)
+        // Retry connection after install
+        setTimeout(() => refreshConnection(), 3000)
+      }
+    } catch (err) {
+      setInstallMessage(`安装失败: ${err}`)
+    } finally {
+      setInstallingOllama(false)
+    }
+  }
+
   const handleCopy = async (msg: ChatMessage) => {
     await navigator.clipboard.writeText(msg.content)
     setCopiedId(msg.id)
@@ -193,8 +238,7 @@ export function AIChat() {
         <div className="relative" ref={modelMenuRef}>
           <button
             onClick={() => setShowModelMenu(!showModelMenu)}
-            disabled={models.length === 0}
-            className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-full text-sm hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-full text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
           >
             <Bot className="w-4 h-4 text-gray-500 dark:text-gray-400" />
             <span className="text-gray-700 dark:text-gray-200 max-w-[200px] truncate">
@@ -203,8 +247,14 @@ export function AIChat() {
             <ChevronDown className="w-4 h-4 text-gray-400" />
           </button>
 
-          {showModelMenu && models.length > 0 && (
+          {showModelMenu && (
             <div className="absolute top-full left-0 mt-1 w-72 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg z-50 overflow-hidden">
+              {models.length === 0 && (
+                <div className="p-4 text-center">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">暂无可用模型</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">请先下载模型后再使用</p>
+                </div>
+              )}
               {models.map(model => (
                 <button
                   key={model.name}
@@ -221,6 +271,13 @@ export function AIChat() {
                   )}
                 </button>
               ))}
+              <button
+                onClick={() => { setShowModelMenu(false); navigate('/models') }}
+                className="w-full px-4 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors border-t border-gray-100 dark:border-gray-700 flex items-center gap-2 text-sm text-primary-600 dark:text-primary-400"
+              >
+                <Package className="w-4 h-4" />
+                浏览模型库
+              </button>
             </div>
           )}
         </div>
@@ -230,22 +287,49 @@ export function AIChat() {
       {connected === false && (
         <div className="mb-4 flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl">
           <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-          <div>
+          <div className="flex-1">
             <p className="text-sm font-medium text-amber-800 dark:text-amber-300">无法连接到 Ollama</p>
-              <div className="flex items-center gap-3 mt-2">
-                <a
-                  href="https://ollama.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 dark:bg-amber-800/40 text-amber-700 dark:text-amber-300 rounded-lg text-xs font-medium hover:bg-amber-200 dark:hover:bg-amber-800/60 transition-colors"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  下载 Ollama
-                </a>
-                <span className="text-xs text-amber-500 dark:text-amber-400">
-                  安装后重启应用即可自动连接
-                </span>
+            {ollamaInstalled === true && !installingOllama ? (
+              <p className="text-xs text-amber-500 dark:text-amber-400 mt-1.5">
+                Ollama 已安装，但服务未启动。请检查系统托盘或手动启动 Ollama。
+              </p>
+            ) : (
+              <div className="mt-2 space-y-2">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleInstallOllama}
+                    disabled={installingOllama}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary-500 text-white rounded-lg text-xs font-medium hover:bg-primary-600 disabled:opacity-50 transition-colors"
+                  >
+                    {installingOllama
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : ollamaInstalled === true
+                        ? <CheckCircle className="w-3.5 h-3.5" />
+                        : <Download className="w-3.5 h-3.5" />}
+                    {installingOllama ? '安装中...' : ollamaInstalled === true ? '已安装' : '一键安装 Ollama'}
+                  </button>
+                  {installMessage && !installingOllama && (
+                    <span className="text-xs text-amber-500 dark:text-amber-400">{installMessage}</span>
+                  )}
+                </div>
+                {installingOllama && installStage === 'download' && (
+                  <div className="space-y-1">
+                    <div className="w-full bg-amber-200 dark:bg-amber-800 rounded-full h-1.5 overflow-hidden">
+                      <div
+                        className="h-full bg-primary-500 rounded-full transition-all duration-300"
+                        style={{ width: `${installPercent ?? 0}%` }}
+                      />
+                    </div>
+                    {installPercent !== null && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400">{installPercent}%</p>
+                    )}
+                  </div>
+                )}
+                {installingOllama && installStage === 'install' && (
+                  <p className="text-xs text-amber-500 dark:text-amber-400">正在安装，请稍候...</p>
+                )}
               </div>
+            )}
           </div>
         </div>
       )}

@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { invoke } from '@tauri-apps/api/core'
-import { NPUInfo, HardwareInfo, ToolInfo, DownloadTask, AppSettings } from '../types'
+import { NPUInfo, ToolInfo, DownloadTask, AppSettings } from '../types'
+import { useHardwareStore } from './hardwareStore'
 
 interface AppState {
   currentPage: 'home' | 'hardware' | 'tools' | 'settings' | 'ai-chat'
@@ -9,9 +10,6 @@ interface AppState {
 
   npuInfo: NPUInfo & { checked: boolean; loading: boolean; error?: string }
   checkNPU: () => Promise<void>
-
-  hardwareInfo: HardwareInfo | null
-  refreshHardware: () => Promise<void>
 
   tools: ToolInfo[]
   downloadTask: DownloadTask | null
@@ -46,17 +44,6 @@ export const useAppStore = create<AppState>()(
           set({ npuInfo: { ...npu, checked: true, loading: false } })
         } catch (error) {
           set({ npuInfo: { ...get().npuInfo, loading: false, error: 'NPU detection failed' } })
-        }
-      },
-
-      hardwareInfo: null,
-      refreshHardware: async () => {
-        try {
-          const info = await invoke<HardwareInfo>('get_hardware_info')
-          set( { hardwareInfo: info })
-        } catch (error) {
-          console.error('Failed to get hardware info:', error)
-          set({ hardwareInfo: null })
         }
       },
 
@@ -105,7 +92,8 @@ export const useAppStore = create<AppState>()(
         } catch { /* keep defaults */ }
 
         await get().checkNPU()
-        await get().refreshHardware()
+        // Fire-and-forget: load hardware info in background (non-blocking)
+        useHardwareStore.getState().refreshInBackground()
       }
     }),
     { name: 'npu-toolbox-storage', partialize: (state) => ({ tools: state.tools }) }

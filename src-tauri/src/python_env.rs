@@ -184,14 +184,19 @@ pub fn init_env() -> Result<EnvStatus, String> {
 }
 
 #[tauri::command]
-pub fn pip_install(app: tauri::AppHandle, package: &str) -> Result<PipResult, String> {
+pub fn pip_install(app: tauri::AppHandle, packages: Vec<String>) -> Result<PipResult, String> {
     ensure_env()?;
 
     let pip = venv_pip();
-    info!("pip install {} (venv)", package);
+    let pkg_display = packages.join(", ");
+    info!("pip install {} (venv)", pkg_display);
+
+    // Build args: install pkg1 pkg2 ... --progress-bar off
+    let mut args: Vec<String> = vec!["install".to_string(), "--progress-bar".to_string(), "off".to_string()];
+    args.extend(packages.iter().cloned());
 
     let mut child = Command::new(&pip)
-        .args(["install", package, "--progress-bar", "off"])
+        .args(&args)
         .creation_flags(CREATE_NO_WINDOW)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -214,9 +219,9 @@ pub fn pip_install(app: tauri::AppHandle, package: &str) -> Result<PipResult, St
     Ok(PipResult {
         success: status.success(),
         message: if status.success() {
-            format!("{} 安装成功", package)
+            format!("{} 安装成功", pkg_display)
         } else {
-            format!("{} 安装失败，请查看日志", package)
+            format!("{} 安装失败，请查看日志", pkg_display)
         },
     })
 }

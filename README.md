@@ -20,12 +20,12 @@
 
 ### 🎯 核心功能
 - **🔍 硬件检测** - 自动检测 NPU/CPU/GPU/内存/存储，五重 NPU 探测算法，实时监控
-- **🤖 AI 对话** - Ollama 本地大模型流式对话，支持停止生成、复制消息
-- **🔧 OpenVINO** - 推理引擎检测、环境诊断、设备选择、推理延迟测试
+- **🤖 AI 对话** - Ollama 一键安装 + 本地大模型流式对话，支持停止生成、复制消息
+- **🔧 OpenVINO** - 一键安装（NPU/GPU 版本可选）、环境诊断、多设备基准测试（Warmup + P50/P95）
+- **📦 模型库** - 推荐模型浏览，按任务类型筛选，显示设备适配信息
 - **🎵 音频工具** - 音乐生成、音效合成、TTS 语音合成（规划中）
 - **📹 视频工具** - 背景移除、画质增强、实时特效（规划中）
-- **💻 编程助手** - Ollama / Tabby / CodeLlama 快捷入口
-- **🎨 创意工具** - 文生图、图生图、AI 图片编辑（规划中）
+- **🖼️ 图片工具** - 文生图、图生图、AI 图片编辑（规划中）
 - **🛠️ 系统工具** - 缓存清理、磁盘检测、电池健康（规划中）
 - **🌙 深色模式** - 全页面深色主题支持
 
@@ -39,6 +39,7 @@
 
 ### 🏗️ 技术特点
 - **轻量化** - 主体程序 < 50MB，按需下载工具
+- **自动化环境管理** - 自动创建 Python venv、一键安装 OpenVINO/Ollama，零手动配置
 - **插件化** - 主控程序 + 动态加载外部工具
 - **无残留** - 卸载时清理所有数据，不留痕迹
 - **优雅降级** - 无 NPU 设备时友好提示并提供 CPU 替代方案
@@ -116,16 +117,28 @@ npm run tauri build
 3. 如未检测到 NPU，显示琥珀色提示卡片，列出建议
 4. 点击刷新按钮可重新检测
 
+### 安装 OpenVINO
+1. 进入「OpenVINO」页面
+2. 点击「一键安装 (NPU)」按钮
+3. 应用自动创建 Python 虚拟环境并通过 pip 安装 openvino + openvino-genai
+4. 安装日志实时显示，完成后自动刷新状态
+5. 支持 NPU/GPU/CPU 三种安装变体（当前 GPU/CPU 版本预留）
+
+### 安装 Ollama
+1. 进入「AI 对话」页面
+2. 如未检测到 Ollama，显示「一键安装 Ollama」按钮
+3. 点击后自动下载并安装，带进度条显示
+4. 安装完成后自动尝试连接
+
+### 推理测试
+1. OpenVINO 安装完成后，在推理测试区域选择设备（CPU/GPU/NPU）
+2. 点击「运行测试」，自动执行 3 次 Warmup + 10 次基准测试
+3. 结果显示 Warmup 延迟、平均/P50/P95/最小/最大延迟统计
+
 ### NPU 检测详情
 - 首页卡片展示 NPU 概览信息
 - 进入「硬件检测」页面查看完整硬件报告
 - 检测日志输出到终端（`RUST_LOG=debug` 可查看详细探测过程）
-
-### 下载工具
-1. 进入对应功能分类
-2. 点击「下载」按钮
-3. 等待下载完成
-4. 点击「启动」使用
 
 ### 卸载
 1. 打开设置 → 存储管理
@@ -145,7 +158,8 @@ npm run tauri build
 | 桌面框架 | Tauri 2.0 |
 | 后端语言 | Rust |
 | 硬件探测 | PowerShell (CIM/WMI) |
-| AI 引擎 | OpenVINO™ + ONNX Runtime（规划中） |
+| AI 引擎 | OpenVINO™ + Ollama（自动安装） |
+| 环境管理 | Python venv（自动创建于 AppData） |
 
 ---
 
@@ -155,17 +169,21 @@ npm run tauri build
 npu-toolbox/
 ├── src/                          # 前端源码
 │   ├── components/               # 可复用组件
-│   │   ├── Layout.tsx            #   布局容器（侧边栏 + 内容区）
-│   │   ├── Sidebar.tsx           #   导航侧边栏
+│   │   ├── Layout.tsx            #   布局容器（侧边栏 + 内容区，PageSlot 懒挂载）
+│   │   ├── Sidebar.tsx           #   导航侧边栏（9 项）
 │   │   ├── Header.tsx            #   顶部状态栏（温度颜色编码）
 │   │   └── ToolGrid.tsx          #   通用工具卡片网格（5色/4状态）
 │   ├── pages/                    # 页面组件
 │   │   ├── Home.tsx              #   首页（NPU状态 + 使用率进度条）
 │   │   ├── HardwareInfo.tsx      #   硬件检测（实时刷新 + 温度监控）
-│   │   ├── AIChat.tsx            #   AI 对话（Ollama 流式 + 停止/复制）
-│   │   ├── OpenVINO.tsx          #   OpenVINO 管理（检测/测试/推荐模型）
+│   │   ├── AIChat.tsx            #   AI 对话（Ollama 一键安装 + 流式 + 停止/复制）
+│   │   ├── OpenVINO.tsx          #   OpenVINO 管理（一键安装/卸载/基准测试）
+│   │   ├── ModelLibrary.tsx      #   模型库（搜索/筛选/下载链接）
+│   │   ├── ImageTools.tsx        #   图片工具（文生图/编辑/放大/风格迁移）
+│   │   ├── AudioTools.tsx        #   音频工具
+│   │   ├── VideoTools.tsx        #   视频工具
 │   │   ├── Settings.tsx          #   设置（主题/路径/缓存管理）
-│   │   └── ...                   #   音频/视频/编程/创意/系统工具页
+│   │   └── NotFound.tsx          #   404 页面
 │   ├── stores/appStore.ts        # Zustand 状态管理
 │   ├── utils/tempColor.ts        # 温度→颜色映射工具函数
 │   ├── types/index.ts            # TypeScript 类型定义
@@ -174,9 +192,10 @@ npu-toolbox/
 ├── src-tauri/                    # Rust 后端
 │   ├── src/
 │   │   ├── main.rs               # 应用入口 + 命令注册
-│   │   ├── commands.rs           # 硬件信息/工具管理/Ollama代理/设置
+│   │   ├── commands.rs           # 硬件信息/工具管理/Ollama 安装与管理/设置
 │   │   ├── npu_detector.rs       # NPU 五重探测算法
-│   │   ├── openvino.rs           # OpenVINO 检测/推理测试（含单元测试）
+│   │   ├── openvino.rs           # OpenVINO 检测/安装变体/基准测试（含单元测试）
+│   │   ├── python_env.rs         # Python venv 管理/pip 安装与卸载/进度事件
 │   │   └── ps.rs                 # PowerShell 执行模块（共享基础设施）
 │   ├── capabilities/default.json # Tauri v2 权限配置
 │   ├── tauri.conf.json           # Tauri 应用配置
@@ -211,6 +230,7 @@ npu-toolbox/
 
 - [Tauri](https://tauri.app/) - 轻量级桌面框架
 - [OpenVINO™](https://docs.openvino.ai/) - Intel AI 推理引擎
+- [Ollama](https://ollama.ai/) - 本地大模型运行时
 - [图吧工具箱](https://tbtool.dawnstd.cn/) - 设计灵感来源
 - 所有开源贡献者
 

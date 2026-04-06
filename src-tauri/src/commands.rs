@@ -194,7 +194,6 @@ fn get_gpu_temperature() -> f32 {
 
 /// Get real CPU information
 async fn get_cpu_info() -> Result<CPUInfo, String> {
-    info!("Getting CPU info...");
     
     let script = r#"
         try {
@@ -271,7 +270,6 @@ async fn get_cpu_info() -> Result<CPUInfo, String> {
 
 /// Get real GPU information including utilization and VRAM usage.
 async fn get_gpu_info() -> Result<GPUInfo, String> {
-    info!("Getting GPU info...");
 
     let script = r#"
         try {
@@ -369,7 +367,6 @@ async fn get_gpu_info() -> Result<GPUInfo, String> {
 
 /// Get real memory information
 async fn get_memory_info() -> Result<MemoryInfo, String> {
-    info!("Getting memory info...");
     
     let script = r#"
         try {
@@ -438,7 +435,6 @@ async fn get_memory_info() -> Result<MemoryInfo, String> {
 
 /// Get partition-level storage usage (C:, D:, …)
 async fn get_storage_list() -> Result<Vec<StorageInfo>, String> {
-    info!("Getting storage info...");
 
     let script = r#"
         try {
@@ -500,11 +496,10 @@ struct HwCache {
 }
 
 static HW_CACHE: LazyLock<Mutex<Option<HwCache>>> = LazyLock::new(|| Mutex::new(None));
-const HW_CACHE_TTL: Duration = Duration::from_secs(3);
+const HW_CACHE_TTL: Duration = Duration::from_secs(30);
 
 /// Build fresh hardware info (no cache).
 async fn build_hardware_info() -> Result<HardwareInfo, String> {
-    info!("Building fresh hardware info...");
     let cpu = get_cpu_info().await.map_err(|e| format!("CPU: {}", e))?;
     let gpu = get_gpu_info().await.map_err(|e| format!("GPU: {}", e))?;
     let memory = get_memory_info().await.map_err(|e| format!("Memory: {}", e))?;
@@ -517,11 +512,9 @@ async fn build_hardware_info() -> Result<HardwareInfo, String> {
 
 #[tauri::command]
 pub async fn get_hardware_info() -> Result<HardwareInfo, String> {
-    // Serve from cache if fresh
     if let Ok(cache) = HW_CACHE.lock() {
         if let Some(ref c) = *cache {
             if c.captured_at.elapsed() < HW_CACHE_TTL {
-                info!("Returning cached hardware info (age {}ms)", c.captured_at.elapsed().as_millis());
                 return Ok(c.result.clone());
             }
         }
@@ -926,6 +919,229 @@ pub async fn get_battery_info() -> Result<BatteryInfo, String> {
             cycle_count: None,
         }),
     }
+}
+
+// ============ Ollama Install / Uninstall ============
+
+/// Ollama installer status returned to frontend.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OllamaInstallResult {
+    pub success: bool,
+    pub message: String,
+}
+
+/// Detect whether Ollama is already installed on the system.
+fn is_ollama_installed() -> bool {
+    // Check common install locations
+    let candidates = [
+        r"C:\Users\%USERPROFILE%\AppData\Local\Programs\Ollama\ollama.exe",
+        "C:\\Program Files\\Ollama\\ollama.exe",
+    ];
+    // Also try `where ollama`
+    if command_exists("ollama") {
+        return true;
+    }
+    // Check USERPROFILE path dynamically
+    if let Ok(up) = std::env::var("USERPROFILE") {
+        let user_path = format!("{}\\AppData\\Local\\Programs\\Ollama\\ollama.exe", up);
+        if std::path::Path::new(&user_path).exists() {
+            return true;
+        }
+    }
+    for c in &candidates {
+        if std::path::Path::new(c).exists() {
+            return true;
+        }
+    }
+    false
+}
+
+fn command_exists(cmd: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let mut c = Command::new("where");
+        c.arg(cmd).creation_flags(CREATE_NO_WINDOW);
+        c.output().map(|o| o.status.success()).unwrap_or(false)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Command::new("which").arg(cmd).output().map(|o| o.status.success()).unwrap_or(false)
+    }
+}
+
+/// Download and silently install Ollama. Returns progress via "ollama-install-progress" events.
+#[tauri::command]
+pub async fn ollama_install(app: tauri::AppHandle) -> Result<OllamaInstallResult, String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    if is_ollama_installed() {
+        return Ok(OllamaInstallResult {
+            success: true,
+            message: "Ollama 已安装".into(),
+        });
+    }
+
+    // Ollama Windows installer is a universal binary — no arch suffix in filename.
+    let url = "https://github.com/ollama/ollama/releases/download/v0.5.7/OllamaSetup.exe".to_string();
+
+    let save_dir = dirs::cache_dir()
+        .unwrap_or_default()
+        .join("NPUToolbox")
+        .join("ollama");
+    std::fs::create_dir_all(&save_dir).map_err(|e| e.to_string())?;
+
+    let installer_path = save_dir.join("OllamaSetup.exe");
+
+    // Stream-download installer with progress events
+    let _ = app.emit("ollama-install-progress", serde_json::json!({
+        "stage": "download",
+        "message": "正在下载 Ollama 安装程序...",
+        "percent": 0,
+    }));
+
+    let resp = reqwest::get(&url)
+        .await
+        .map_err(|e| format!("下载请求失败: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Ok(OllamaInstallResult {
+            success: false,
+            message: format!("下载失败，HTTP {}", resp.status()),
+        });
+    }
+
+    let total_size = resp.content_length().unwrap_or(0);
+    let mut downloaded: u64 = 0;
+    let mut file = std::fs::File::create(&installer_path)
+        .map_err(|e| format!("创建文件失败: {}", e))?;
+
+    let mut stream = resp.bytes_stream();
+    use futures_util::StreamExt;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("下载中断: {}", e))?;
+        std::io::Write::write_all(&mut file, &chunk)
+            .map_err(|e| format!("写入文件失败: {}", e))?;
+        downloaded += chunk.len() as u64;
+
+        if total_size > 0 {
+            let percent = (downloaded as f64 / total_size as f64 * 100.0).round() as u32;
+            let _ = app.emit("ollama-install-progress", serde_json::json!({
+                "stage": "download",
+                "message": format!("正在下载 Ollama 安装程序... {}%", percent),
+                "percent": percent,
+            }));
+        } else {
+            let mb = downloaded as f64 / 1048576.0;
+            let _ = app.emit("ollama-install-progress", serde_json::json!({
+                "stage": "download",
+                "message": format!("正在下载 Ollama 安装程序... {:.1} MB", mb),
+                "percent": null,
+            }));
+        }
+    }
+    drop(file);
+
+    // Emit install start
+    let _ = app.emit("ollama-install-progress", serde_json::json!({
+        "stage": "install",
+        "message": "正在安装 Ollama，请稍候...",
+        "percent": null,
+    }));
+
+    // Run installer silently (/S flag for NSIS-based installer)
+    let install_result = Command::new(&installer_path)
+        .arg("/S")
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map_err(|e| format!("启动安装程序失败: {}", e))?
+        .wait()
+        .map_err(|e| format!("安装程序执行失败: {}", e))?;
+
+    let _ = std::fs::remove_file(&installer_path);
+
+    if install_result.success() {
+
+        let _ = app.emit("ollama-install-progress", serde_json::json!({
+            "stage": "done",
+            "message": "Ollama 安装完成，正在启动服务...",
+        }));
+
+        // Wait a moment for Ollama service to start, then verify
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        let running = reqwest::Client::new()
+            .get(format!("{}/api/tags", "http://127.0.0.1:11434"))
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false);
+
+        if running {
+            Ok(OllamaInstallResult {
+                success: true,
+                message: "Ollama 安装成功并已启动".into(),
+            })
+        } else {
+            Ok(OllamaInstallResult {
+                success: true,
+                message: "Ollama 已安装，服务可能需要几秒才能就绪".into(),
+            })
+        }
+    } else {
+        Ok(OllamaInstallResult {
+            success: false,
+            message: "Ollama 安装程序执行失败".into(),
+        })
+    }
+}
+
+/// Uninstall Ollama by running its uninstaller.
+#[tauri::command]
+pub async fn ollama_uninstall() -> Result<OllamaInstallResult, String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    // Find uninstaller
+    let uninstaller = if let Ok(up) = std::env::var("USERPROFILE") {
+        let p = format!("{}\\AppData\\Local\\Programs\\Ollama\\Uninstall.exe", up);
+        if std::path::Path::new(&p).exists() {
+            Some(p)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    match uninstaller {
+        Some(path) => {
+            Command::new(&path)
+                .arg("/S")
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+                .map_err(|e| format!("启动卸载程序失败: {}", e))?
+                .wait()
+                .map_err(|e| format!("卸载程序执行失败: {}", e))?;
+
+            Ok(OllamaInstallResult {
+                success: true,
+                message: "Ollama 卸载程序已启动".into(),
+            })
+        }
+        None => Ok(OllamaInstallResult {
+            success: false,
+            message: "未找到 Ollama 卸载程序，可能未安装".into(),
+        }),
+    }
+}
+
+/// Check if Ollama is installed (not just running).
+#[tauri::command]
+pub async fn ollama_is_installed() -> Result<bool, String> {
+    Ok(is_ollama_installed())
 }
 
 // ============ Ollama Proxy Commands ============

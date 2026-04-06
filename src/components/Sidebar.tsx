@@ -4,13 +4,12 @@ import {
   MessageSquare, 
   Music, 
   Video, 
-  Code, 
   Palette, 
   HardDrive, 
-  Wrench, 
   Settings,
   Cpu,
-  Zap
+  Zap,
+  Package
 } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -19,11 +18,10 @@ const navItems = [
   { path: '/ai-chat', icon: MessageSquare, label: 'AI对话' },
   { path: '/audio', icon: Music, label: '音频工具' },
   { path: '/video', icon: Video, label: '视频工具' },
-  { path: '/programming', icon: Code, label: '编程助手' },
-  { path: '/creative', icon: Palette, label: '创意工具' },
+  { path: '/creative', icon: Palette, label: '图片工具' },
   { path: '/hardware', icon: HardDrive, label: '硬件检测' },
-  { path: '/system', icon: Wrench, label: '系统工具' },
   { path: '/openvino', icon: Zap, label: 'OpenVINO' },
+  { path: '/models', icon: Package, label: '模型库' },
   { path: '/settings', icon: Settings, label: '设置' },
 ]
 

@@ -1,40 +1,11 @@
-import { useState, useEffect } from 'react'
-import { invoke } from '@tauri-apps/api/core'
 import { useNavigate } from 'react-router-dom'
 import {
-  Cpu, MessageSquare, Music, Video, Code, Palette,
+  Cpu, MessageSquare, Music, Video, Palette,
   HardDrive, Settings, ArrowRight, RefreshCw, Zap
 } from 'lucide-react'
-
-interface NPUStatus {
-  has_npu: boolean
-  vendor: string
-  model: string
-  compute_units: number
-  tops: number
-  driver_version: string
-  status: string
-  recommendations: string[]
-}
-
-interface HardwareInfo {
-  cpu: { name: string; cores: number; threads: number; frequency: string; temperature: number; usage: number }
-  gpu: { name: string; vram_total: string; vram_used: string; driver: string; usage: number; temperature: number }
-  memory: { total: string; used: string; usage: number; slots: string }
-  npu: NPUStatus
-  storage: Array<{ name: string; filesystem: string; total: string; used: string; free: string; usage: number }>
-}
+import { useHardwareStore } from '../stores/hardwareStore'
 
 const toolCategories = [
-  {
-    title: '🤖 AI对话',
-    description: '本地大模型、知识库、文本处理',
-    route: '/ai-chat',
-    tools: [
-      { id: 'ollama', name: 'Ollama', description: '本地大模型运行时', icon: MessageSquare },
-      { id: 'rag', name: '知识库', description: 'RAG 问答系统', icon: MessageSquare },
-    ]
-  },
   {
     title: '🎵 音频工具',
     description: '音乐生成、音效合成、语音合成',
@@ -54,16 +25,7 @@ const toolCategories = [
     ]
   },
   {
-    title: '💻 编程助手',
-    description: '代码补全、代码解释、测试生成',
-    route: '/programming',
-    tools: [
-      { id: 'code-llama', name: 'CodeLlama', description: '代码补全', icon: Code },
-      { id: 'tabby', name: 'Tabby', description: '自托管编码助手', icon: Code },
-    ]
-  },
-  {
-    title: '🎨 创意工具',
+    title: '🎨 图片工具',
     description: '文生图、图生图、图片编辑',
     route: '/creative',
     tools: [
@@ -80,59 +42,12 @@ const toolCategories = [
       { id: 'hardware-monitor', name: '硬件监控', description: '实时监控', icon: HardDrive },
     ]
   },
-  {
-    title: '🛠️ 系统工具',
-    description: '磁盘检测、电池健康、屏幕测试',
-    route: '/system',
-    tools: [
-      { id: 'disk-check', name: '磁盘检测', description: 'SMART 状态', icon: HardDrive },
-      { id: 'battery', name: '电池健康', description: '电池检测', icon: HardDrive },
-    ]
-  },
 ]
 
 export function Home() {
   const navigate = useNavigate()
-  const [npuStatus, setNpuStatus] = useState<NPUStatus | null>(null)
-  const [hardwareInfo, setHardwareInfo] = useState<HardwareInfo | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    const fetchHardwareInfo = async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        const info = await invoke<HardwareInfo>('get_hardware_info')
-        setHardwareInfo(info)
-        setNpuStatus(info.npu)
-      } catch {
-        setError('获取硬件信息失败')
-        setNpuStatus({
-          has_npu: false, vendor: '', model: '', compute_units: 0, tops: 0,
-          driver_version: '', status: 'unavailable',
-          recommendations: ['您的设备不支持 NPU', '仍可使用 CPU 模式运行（速度较慢）'],
-        })
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchHardwareInfo()
-  }, [])
-
-  const handleRefresh = async () => {
-    setLoading(true)
-    try {
-      const info = await invoke<HardwareInfo>('get_hardware_info')
-      setHardwareInfo(info)
-      setNpuStatus(info.npu)
-      setError(null)
-    } catch {
-      console.error('刷新失败')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const { info: hardwareInfo, loading, error, refresh } = useHardwareStore()
+  const npuStatus = hardwareInfo?.npu ?? null
 
   return (
     <div className="space-y-6">
@@ -143,7 +58,7 @@ export function Home() {
           <p className="text-gray-500 dark:text-gray-400 mt-1">让每个用户都能轻松使用本地 AI 能力</p>
         </div>
         <button
-          onClick={handleRefresh}
+          onClick={refresh}
           disabled={loading}
           className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
           title="刷新硬件信息"
@@ -152,18 +67,21 @@ export function Home() {
         </button>
       </div>
 
-      {/* Loading */}
-      {loading && !npuStatus && (
-        <div className="flex items-center justify-center p-12">
-          <div className="text-center">
-            <RefreshCw className="w-8 h-8 text-primary-500 animate-spin mx-auto mb-4" />
-            <p className="text-gray-500 dark:text-gray-400">正在检测硬件信息...</p>
-          </div>
+      {/* Loading skeleton (only on first load, no spinner) */}
+      {loading && !hardwareInfo && (
+        <div className="grid grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 animate-pulse">
+              <div className="h-3 w-8 bg-gray-200 dark:bg-gray-700 rounded mb-3" />
+              <div className="h-4 w-3/4 bg-gray-200 dark:bg-gray-700 rounded mb-2" />
+              <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full" />
+            </div>
+          ))}
         </div>
       )}
 
       {/* Error */}
-      {error && (
+      {error && !hardwareInfo && (
         <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400">
           {error}
         </div>
@@ -197,7 +115,7 @@ export function Home() {
           </div>
           {npuStatus.has_npu && npuStatus.recommendations.length > 0 && (
             <div className="mt-4 flex flex-wrap gap-2">
-              {npuStatus.recommendations.map((rec, idx) => (
+              {npuStatus.recommendations.map((rec: string, idx: number) => (
                 <span key={idx} className="px-3 py-1 bg-green-100 dark:bg-green-800 text-green-700 dark:text-green-300 rounded-full text-xs font-medium">
                   {rec}
                 </span>

@@ -1,50 +1,28 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { invoke } from '@tauri-apps/api/core'
+import { useState, useEffect, useRef } from 'react'
 import { Cpu, HardDrive, MemoryStick, Monitor, RefreshCw, Pause, Play } from 'lucide-react'
 import { tempColor } from '../utils/tempColor'
-
-interface HardwareInfo {
-  cpu: { name: string; cores: number; threads: number; frequency: string; temperature: number; usage: number }
-  gpu: { name: string; vram_total: string; vram_used: string; driver: string; usage: number; temperature: number }
-  memory: { total: string; used: string; usage: number; slots: string }
-  npu: { has_npu: boolean; vendor: string; model: string; compute_units: number; tops: number; driver_version: string; status: string; recommendations: string[] }
-  storage: Array<{ name: string; filesystem: string; total: string; used: string; free: string; usage: number }>
-}
+import { useHardwareStore } from '../stores/hardwareStore'
 
 const REFRESH_INTERVAL_MS = 5000
 
 export function HardwareInfo() {
-  const [hardware, setHardware] = useState<HardwareInfo | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { info: hardware, loading, error, refresh } = useHardwareStore()
   const [autoRefresh, setAutoRefresh] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const fetchHardwareInfo = useCallback(async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const info = await invoke<HardwareInfo>('get_hardware_info')
-      setHardware(info)
-    } catch {
-      setError('获取硬件信息失败，请重试')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => { fetchHardwareInfo() }, [fetchHardwareInfo])
+  // Ensure data is available (uses cache if fresh)
+  useEffect(() => { refresh() }, [refresh])
 
   // Auto-refresh toggle
   useEffect(() => {
     if (autoRefresh) {
-      intervalRef.current = setInterval(fetchHardwareInfo, REFRESH_INTERVAL_MS)
+      intervalRef.current = setInterval(refresh, REFRESH_INTERVAL_MS)
     } else if (intervalRef.current) {
       clearInterval(intervalRef.current)
       intervalRef.current = null
     }
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [autoRefresh, fetchHardwareInfo])
+  }, [autoRefresh, refresh])
 
   if (loading && !hardware) {
     return (
@@ -73,7 +51,7 @@ export function HardwareInfo() {
         <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400">
           {error}
         </div>
-        <button onClick={fetchHardwareInfo} className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600">
+        <button onClick={refresh} className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600">
           重试
         </button>
       </div>
@@ -102,7 +80,7 @@ export function HardwareInfo() {
             {autoRefresh ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
             <span className="hidden sm:inline">{autoRefresh ? '监控中' : '监控'}</span>
           </button>
-          <button onClick={fetchHardwareInfo} disabled={loading} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors" title="刷新">
+          <button onClick={refresh} disabled={loading} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors" title="刷新">
             <RefreshCw className={`w-5 h-5 text-gray-600 dark:text-gray-400 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>

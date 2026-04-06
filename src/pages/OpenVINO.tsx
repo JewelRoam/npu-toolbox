@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import {
-  CheckCircle, XCircle, Download, Cpu, ExternalLink, RefreshCw,
-  Terminal, Package, Play, Trash2, Loader2,
+  CheckCircle, XCircle, Download, Cpu, RefreshCw,
+  Terminal, Play, Trash2, Loader2,
 } from 'lucide-react'
 
 interface OpenVINOStatus {
@@ -12,25 +12,22 @@ interface OpenVINOStatus {
   python_available: boolean
   python_version: string | null
   npu_plugin_available: boolean
+  gpu_plugin_available: boolean
   available_devices: string[]
   install_path: string | null
-}
-
-interface ModelInfo {
-  name: string
-  task: string
-  framework: string
-  description: string
-  download_url: string
-  size_mb: number
-  recommended_device: string
 }
 
 interface InferenceTestResult {
   success: boolean
   device: string
-  latency_ms: number
   message: string
+  trials: number[]
+  warmup_ms: number
+  avg_ms: number
+  min_ms: number
+  max_ms: number
+  p50_ms: number
+  p95_ms: number
 }
 
 interface PipResult {
@@ -38,13 +35,8 @@ interface PipResult {
   message: string
 }
 
-function formatSize(mb: number): string {
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`
-}
-
 export function OpenVINOPage() {
   const [status, setStatus] = useState<OpenVINOStatus | null>(null)
-  const [models, setModels] = useState<ModelInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [testResult, setTestResult] = useState<InferenceTestResult | null>(null)
   const [testDevice, setTestDevice] = useState('CPU')
@@ -56,12 +48,8 @@ export function OpenVINOPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [s, m] = await Promise.all([
-        invoke<OpenVINOStatus>('detect_openvino'),
-        invoke<ModelInfo[]>('get_recommended_models'),
-      ])
+      const s = await invoke<OpenVINOStatus>('detect_openvino')
       setStatus(s)
-      setModels(m)
       if (s.available_devices.length > 0) setTestDevice(s.available_devices[0])
     } catch (err) {
       console.error('Failed to fetch OpenVINO info:', err)
@@ -70,11 +58,11 @@ export function OpenVINOPage() {
     }
   }, [])
 
-  const handleInstall = async () => {
+  const handleInstall = async (variant?: string) => {
     setInstalling(true)
     setPipProgress([])
     try {
-      const result = await invoke<PipResult>('install_openvino')
+      const result = await invoke<PipResult>('install_openvino', { variant: variant ?? null })
       if (!result.success) setPipProgress(prev => [...prev, result.message])
       await fetchAll()
     } catch (err) {
@@ -105,7 +93,7 @@ export function OpenVINOPage() {
       const result = await invoke<InferenceTestResult>('test_openvino_inference', { device: testDevice })
       setTestResult(result)
     } catch (err) {
-      setTestResult({ success: false, device: testDevice, latency_ms: 0, message: String(err) })
+      setTestResult({ success: false, device: testDevice, message: String(err), trials: [], warmup_ms: 0, avg_ms: 0, min_ms: 0, max_ms: 0, p50_ms: 0, p95_ms: 0 })
     } finally {
       setTesting(false)
     }
@@ -157,6 +145,7 @@ export function OpenVINOPage() {
           <EnvItem label="Python" value={status.python_available ? status.python_version ?? '可用' : '未安装'} ok={status.python_available} />
           <EnvItem label="OpenVINO" value={status.installed ? status.version ?? '已安装' : '未安装'} ok={status.installed} />
           <EnvItem label="NPU 插件" value={status.npu_plugin_available ? '可用' : '不可用'} ok={status.npu_plugin_available} />
+          <EnvItem label="GPU 插件" value={status.gpu_plugin_available ? '可用' : '不可用'} ok={status.gpu_plugin_available} />
           {status.install_path && (
             <div>
               <p className="text-sm text-gray-500 dark:text-gray-400">虚拟环境路径</p>
@@ -227,15 +216,22 @@ export function OpenVINOPage() {
                 <span className={`text-sm font-medium ${testResult.success ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
                   {testResult.success ? '测试通过' : '测试失败'}
                 </span>
-                {testResult.success && (
-                  <span className="text-sm text-gray-500 dark:text-gray-400">
-                    · {testResult.latency_ms.toFixed(1)}ms
-                  </span>
-                )}
               </div>
               <p className={`text-sm ${testResult.success ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                 {testResult.message}
               </p>
+              {testResult.success && testResult.trials.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-green-200 dark:border-green-800">
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 text-center">
+                    <StatBox label="Warmup" value={`${testResult.warmup_ms.toFixed(2)}ms`} />
+                    <StatBox label="平均" value={`${testResult.avg_ms.toFixed(2)}ms`} highlight />
+                    <StatBox label="P50" value={`${testResult.p50_ms.toFixed(2)}ms`} />
+                    <StatBox label="P95" value={`${testResult.p95_ms.toFixed(2)}ms`} />
+                    <StatBox label="最小" value={`${testResult.min_ms.toFixed(2)}ms`} />
+                    <StatBox label="最大" value={`${testResult.max_ms.toFixed(2)}ms`} />
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -259,42 +255,6 @@ export function OpenVINOPage() {
           </div>
         </div>
       )}
-
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
-        <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-          <Package className="w-5 h-5 text-gray-500 dark:text-gray-400" /> 推荐模型
-        </h3>
-        <div className="space-y-3">
-          {models.map((model) => (
-            <div key={model.name} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <p className="font-medium text-gray-900 dark:text-white">{model.name}</p>
-                  <span className="px-2 py-0.5 bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400 rounded-full text-xs">
-                    {model.task}
-                  </span>
-                  <span className="px-2 py-0.5 bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 rounded-full text-xs">
-                    {model.recommended_device}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">{model.description}</p>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                  {model.framework} · {formatSize(model.size_mb)}
-                </p>
-              </div>
-              <a
-                href={model.download_url}
-                target="_blank"
-                rel="noreferrer"
-                className="ml-4 px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 transition-colors flex items-center gap-1 whitespace-nowrap"
-              >
-                <ExternalLink className="w-4 h-4" />
-                下载
-              </a>
-            </div>
-          ))}
-        </div>
-      </div>
 
       {status.npu_plugin_available && (
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
@@ -331,7 +291,7 @@ function StatusCard({
   status, onInstall, onUninstall, installing, uninstalling,
 }: {
   status: OpenVINOStatus
-  onInstall: () => void
+  onInstall: (variant?: string) => void
   onUninstall: () => void
   installing: boolean
   uninstalling: boolean
@@ -372,12 +332,13 @@ function StatusCard({
             </button>
           ) : (
             <button
-              onClick={onInstall}
+              onClick={() => onInstall('npu')}
               disabled={installing || uninstalling || !status.python_available}
               className="px-4 py-2 text-sm bg-primary-500 text-white rounded-lg hover:bg-primary-600 disabled:opacity-50 flex items-center gap-2 transition-colors"
+              title="安装 OpenVINO + openvino-genai（含 NPU 支持）"
             >
               {installing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              {installing ? '安装中...' : '一键安装'}
+              {installing ? '安装中...' : '一键安装 (NPU)'}
             </button>
           )}
         </div>
@@ -401,6 +362,15 @@ function PipProgressLog({ lines, active }: { lines: string[]; active: boolean })
       <pre ref={refCb} className="bg-gray-900 dark:bg-gray-950 text-green-400 text-xs font-mono rounded-lg p-4 max-h-48 overflow-y-auto">
         {lines.length > 0 ? lines.join('\n') : (active ? '等待 pip 输出...\n' : '')}
       </pre>
+    </div>
+  )
+}
+
+function StatBox({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className={`px-2 py-1.5 rounded-lg ${highlight ? 'bg-green-100 dark:bg-green-800/50' : 'bg-green-50 dark:bg-green-900/20'}`}>
+      <p className="text-xs text-green-600 dark:text-green-400">{label}</p>
+      <p className={`text-sm font-mono font-medium ${highlight ? 'text-green-800 dark:text-green-200' : 'text-green-700 dark:text-green-300'}`}>{value}</p>
     </div>
   )
 }

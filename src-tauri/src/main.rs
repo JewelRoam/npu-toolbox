@@ -11,7 +11,7 @@ use tauri::Manager;
 
 fn main() {
     // Initialize logger with debug level
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug"))
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(if cfg!(debug_assertions) { "info" } else { "warn" }))
         .format_timestamp_millis()
         .init();
     
@@ -40,7 +40,10 @@ fn main() {
             // Settings management
             commands::save_settings,
             commands::load_settings,
-            // Ollama proxy
+            // Ollama install / proxy
+            commands::ollama_install,
+            commands::ollama_uninstall,
+            commands::ollama_is_installed,
             commands::ollama_check,
             commands::ollama_list_models,
             commands::ollama_chat,
