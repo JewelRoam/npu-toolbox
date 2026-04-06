@@ -29,6 +29,7 @@ const toolCategories = [
   {
     title: '🤖 AI对话',
     description: '本地大模型、知识库、文本处理',
+    route: '/ai-chat',
     tools: [
       { id: 'ollama', name: 'Ollama', description: '本地大模型运行时', icon: MessageSquare },
       { id: 'rag', name: '知识库', description: 'RAG 问答系统', icon: MessageSquare },
@@ -37,6 +38,7 @@ const toolCategories = [
   {
     title: '🎵 音频工具',
     description: '音乐生成、音效合成、语音合成',
+    route: '/audio-tools',
     tools: [
       { id: 'musicgen', name: '音乐生成', description: 'AI 音乐创作', icon: Music },
       { id: 'tts', name: '语音合成', description: '本地 TTS', icon: Music },
@@ -45,6 +47,7 @@ const toolCategories = [
   {
     title: '📹 视频工具',
     description: '背景移除、画质增强、实时特效',
+    route: '/video-tools',
     tools: [
       { id: 'bg-remove', name: '背景移除', description: '实时抠像', icon: Video },
       { id: 'video-enhance', name: '画质增强', description: '视频超分', icon: Video },
@@ -53,6 +56,7 @@ const toolCategories = [
   {
     title: '💻 编程助手',
     description: '代码补全、代码解释、测试生成',
+    route: '/programming',
     tools: [
       { id: 'code-llama', name: 'CodeLlama', description: '代码补全', icon: Code },
       { id: 'tabby', name: 'Tabby', description: '自托管编码助手', icon: Code },
@@ -61,6 +65,7 @@ const toolCategories = [
   {
     title: '🎨 创意工具',
     description: '文生图、图生图、图片编辑',
+    route: '/creative-tools',
     tools: [
       { id: 'stable-diffusion', name: '图片生成', description: '本地扩散模型', icon: Palette },
       { id: 'image-edit', name: '图片编辑', description: 'AI 图片编辑', icon: Palette },
@@ -69,6 +74,7 @@ const toolCategories = [
   {
     title: '🔍 硬件检测',
     description: 'NPU信息、温度监控、烤机测试',
+    route: '/hardware',
     tools: [
       { id: 'npu-info', name: 'NPU信息', description: 'NPU 详细状态', icon: Cpu },
       { id: 'hardware-monitor', name: '硬件监控', description: '实时监控', icon: HardDrive },
@@ -77,6 +83,7 @@ const toolCategories = [
   {
     title: '🛠️ 系统工具',
     description: '磁盘检测、电池健康、屏幕测试',
+    route: '/system-tools',
     tools: [
       { id: 'disk-check', name: '磁盘检测', description: 'SMART 状态', icon: HardDrive },
       { id: 'battery', name: '电池健康', description: '电池检测', icon: HardDrive },
@@ -241,6 +248,7 @@ export function Home() {
           {toolCategories.map((category, idx) => (
             <div
               key={idx}
+              onClick={() => category.route && navigate(category.route)}
               className="p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-primary-300 dark:hover:border-primary-600 hover:shadow-md transition-all cursor-pointer group"
             >
               <h3 className="font-medium text-gray-900 dark:text-white mb-1">{category.title}</h3>
