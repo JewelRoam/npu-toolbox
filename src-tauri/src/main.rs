@@ -42,6 +42,7 @@ fn main() {
             commands::ollama_check,
             commands::ollama_list_models,
             commands::ollama_chat,
+            commands::ollama_stop_generation,
             // OpenVINO
             openvino::detect_openvino,
             openvino::get_recommended_models,

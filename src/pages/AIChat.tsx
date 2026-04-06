@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { Send, Bot, User, Loader2, ChevronDown, AlertCircle, Plug } from 'lucide-react'
+import { Send, Bot, User, Loader2, ChevronDown, AlertCircle, Plug, Square, Trash2, Copy, Check } from 'lucide-react'
 
 interface Model {
   name: string
@@ -35,6 +35,7 @@ export function AIChat() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [showModelMenu, setShowModelMenu] = useState(false)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const modelMenuRef = useRef<HTMLDivElement>(null)
 
@@ -133,6 +134,30 @@ export function AIChat() {
       })
       setIsLoading(false)
     }
+  }
+
+  const handleStop = async () => {
+    try {
+      await invoke('ollama_stop_generation')
+    } catch { /* ignore */ }
+    setIsLoading(false)
+    // Remove empty trailing assistant message
+    setMessages(prev => {
+      const last = prev[prev.length - 1]
+      if (last?.role === 'assistant' && last.content === '') return prev.slice(0, -1)
+      return prev
+    })
+  }
+
+  const handleClear = () => {
+    setIsLoading(false)
+    setMessages([{ id: nextId(), role: 'assistant', content: '对话已清空。有什么可以帮你的？' }])
+  }
+
+  const handleCopy = async (msg: ChatMessage) => {
+    await navigator.clipboard.writeText(msg.content)
+    setCopiedId(msg.id)
+    setTimeout(() => setCopiedId(null), 2000)
   }
 
   const formatModelSize = (bytes?: number) => {
@@ -245,20 +270,33 @@ export function AIChat() {
                 : <Bot className="w-5 h-5 text-white" />
               }
             </div>
-            <div className={`max-w-[70%] p-4 rounded-2xl ${
-              msg.role === 'user'
-                ? 'bg-primary-500 text-white'
-                : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700'
-            }`}>
-              {msg.role === 'assistant' && msg.content === '' && isLoading ? (
-                <div className="flex items-center gap-2 text-gray-400 dark:text-gray-500">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span className="text-sm">思考中...</span>
-                </div>
-              ) : (
-                <p className={`text-sm whitespace-pre-wrap ${
-                  msg.role === 'assistant' ? 'text-gray-800 dark:text-gray-200' : ''
-                }`}>{msg.content}</p>
+            <div className="group relative max-w-[70%]">
+              <div className={`p-4 rounded-2xl ${
+                msg.role === 'user'
+                  ? 'bg-primary-500 text-white'
+                  : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700'
+              }`}>
+                {msg.role === 'assistant' && msg.content === '' && isLoading ? (
+                  <div className="flex items-center gap-2 text-gray-400 dark:text-gray-500">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm">思考中...</span>
+                  </div>
+                ) : (
+                  <p className={`text-sm whitespace-pre-wrap ${
+                    msg.role === 'assistant' ? 'text-gray-800 dark:text-gray-200' : ''
+                  }`}>{msg.content}</p>
+                )}
+              </div>
+              {msg.role === 'assistant' && msg.content.length > 0 && (
+                <button
+                  onClick={() => handleCopy(msg)}
+                  className="absolute top-2 right-2 p-1 rounded-md bg-gray-100 dark:bg-gray-700 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="复制"
+                >
+                  {copiedId === msg.id
+                    ? <Check className="w-3.5 h-3.5 text-green-500" />
+                    : <Copy className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />}
+                </button>
               )}
             </div>
           </div>
@@ -268,7 +306,16 @@ export function AIChat() {
 
       {/* Input area */}
       <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-        <div className="flex gap-3">
+        <div className="flex gap-2">
+          {messages.length > 1 && !isLoading && (
+            <button
+              onClick={handleClear}
+              className="p-3 text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors"
+              title="清空对话"
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
+          )}
           <input
             type="text"
             value={input}
@@ -278,14 +325,25 @@ export function AIChat() {
             disabled={!connected || !selectedModel || isLoading}
             className="flex-1 px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
           />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || isLoading || !connected || !selectedModel}
-            className="px-6 py-3 bg-primary-500 text-white rounded-xl hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-          >
-            {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-            <span className="hidden sm:inline">发送</span>
-          </button>
+          {isLoading ? (
+            <button
+              onClick={handleStop}
+              className="px-5 py-3 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors flex items-center gap-2"
+              title="停止生成"
+            >
+              <Square className="w-5 h-5" />
+              <span className="hidden sm:inline">停止</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!input.trim() || !connected || !selectedModel}
+              className="px-5 py-3 bg-primary-500 text-white rounded-xl hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            >
+              <Send className="w-5 h-5" />
+              <span className="hidden sm:inline">发送</span>
+            </button>
+          )}
         </div>
         <div className="flex items-center justify-between mt-2">
           <p className="text-xs text-gray-400 dark:text-gray-500">

@@ -1,10 +1,15 @@
 use serde::{Deserialize, Serialize};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::LazyLock;
 use log::{info, warn};
 use tauri::Emitter;
 
 use crate::npu_detector::{NPUDetector, NPUStatus};
 use crate::ps;
+
+/// Global flag: when true, any in-flight Ollama stream should abort.
+static OLLAMA_ABORT: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBool::new(false));
 
 // ============ Data Structures ============
 
@@ -750,6 +755,8 @@ pub async fn ollama_chat(
     model: String,
     messages: Vec<serde_json::Value>,
 ) -> Result<(), String> {
+    OLLAMA_ABORT.store(false, Ordering::SeqCst);
+
     let body = serde_json::json!({
         "model": model,
         "messages": messages,
@@ -775,6 +782,10 @@ pub async fn ollama_chat(
     let mut buf = String::new();
 
     while let Some(chunk) = stream.next().await {
+        if OLLAMA_ABORT.load(Ordering::SeqCst) {
+            let _ = app.emit("ollama-chat-done", serde_json::json!({}));
+            return Ok(());
+        }
         let chunk = chunk.map_err(|e| e.to_string())?;
         buf.push_str(&String::from_utf8_lossy(&chunk));
 
@@ -804,5 +815,13 @@ pub async fn ollama_chat(
 
     // If stream ended without explicit "done", emit done anyway
     let _ = app.emit("ollama-chat-done", serde_json::json!({}));
+    Ok(())
+}
+
+/// Signal the current Ollama stream to abort.
+#[tauri::command]
+pub async fn ollama_stop_generation() -> Result<(), String> {
+    OLLAMA_ABORT.store(true, Ordering::SeqCst);
+    info!("Ollama generation stop requested");
     Ok(())
 }
