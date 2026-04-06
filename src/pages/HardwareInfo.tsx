@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { Cpu, HardDrive, MemoryStick, Monitor, Thermometer, RefreshCw } from 'lucide-react'
+import { Cpu, HardDrive, MemoryStick, Monitor, Thermometer, RefreshCw, Pause, Play } from 'lucide-react'
 
 interface HardwareInfo {
   cpu: { name: string; cores: number; threads: number; frequency: string; temperature: number; usage: number }
@@ -10,12 +10,25 @@ interface HardwareInfo {
   storage: Array<{ name: string; size: string; health: number; temp: number; storage_type: string }>
 }
 
+const REFRESH_INTERVAL_MS = 5000
+
+/** Temperature color classes based on Celsius value */
+function tempColor(temp: number): string {
+  if (temp <= 0) return 'text-gray-400 dark:text-gray-500'
+  if (temp < 45) return 'text-blue-500'
+  if (temp < 65) return 'text-green-500'
+  if (temp < 80) return 'text-amber-500'
+  return 'text-red-500'
+}
+
 export function HardwareInfo() {
   const [hardware, setHardware] = useState<HardwareInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [autoRefresh, setAutoRefresh] = useState(false)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const fetchHardwareInfo = async () => {
+  const fetchHardwareInfo = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
@@ -26,9 +39,20 @@ export function HardwareInfo() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  useEffect(() => { fetchHardwareInfo() }, [])
+  useEffect(() => { fetchHardwareInfo() }, [fetchHardwareInfo])
+
+  // Auto-refresh toggle
+  useEffect(() => {
+    if (autoRefresh) {
+      intervalRef.current = setInterval(fetchHardwareInfo, REFRESH_INTERVAL_MS)
+    } else if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
+    }
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+  }, [autoRefresh, fetchHardwareInfo])
 
   if (loading && !hardware) {
     return (
@@ -73,9 +97,23 @@ export function HardwareInfo() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">硬件检测</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">查看系统硬件详细信息</p>
         </div>
-        <button onClick={fetchHardwareInfo} disabled={loading} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors" title="刷新">
-          <RefreshCw className={`w-5 h-5 text-gray-600 dark:text-gray-400 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setAutoRefresh(!autoRefresh)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+              autoRefresh
+                ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
+                : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400'
+            }`}
+            title={autoRefresh ? '停止自动刷新' : '开启自动刷新 (5s)'}
+          >
+            {autoRefresh ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+            <span className="hidden sm:inline">{autoRefresh ? '监控中' : '监控'}</span>
+          </button>
+          <button onClick={fetchHardwareInfo} disabled={loading} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors" title="刷新">
+            <RefreshCw className={`w-5 h-5 text-gray-600 dark:text-gray-400 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
 
       {/* NPU */}
@@ -113,7 +151,7 @@ export function HardwareInfo() {
           { label: '型号', value: hardware.cpu.name },
           { label: '核心/线程', value: `${hardware.cpu.cores} 核心 / ${hardware.cpu.threads} 线程` },
           { label: '频率', value: hardware.cpu.frequency },
-          { label: '温度', value: hardware.cpu.temperature > 0 ? `${hardware.cpu.temperature}°C` : undefined, hint: hardware.cpu.temperature <= 0 ? '不可用 (需管理员权限)' : undefined },
+          { label: '温度', value: hardware.cpu.temperature > 0 ? `${hardware.cpu.temperature}°C` : undefined, hint: hardware.cpu.temperature <= 0 ? '不可用 (需管理员权限)' : undefined, valueClass: tempColor(hardware.cpu.temperature) },
         ]} />
         <div className="col-span-2">
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">使用率</p>
@@ -165,7 +203,7 @@ export function HardwareInfo() {
               {disk.temp > 0 ? (
                 <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
                   <Thermometer className="w-4 h-4" />
-                  <span>{disk.temp}°C</span>
+                  <span className={tempColor(disk.temp)}>{disk.temp}°C</span>
                 </div>
               ) : (
                 <p className="text-xs text-gray-400 dark:text-gray-500">SMART 数据需要管理员权限读取</p>
@@ -187,13 +225,15 @@ function Section({ title, icon, children }: { title: string; icon: React.ReactNo
   )
 }
 
-function InfoGrid({ items }: { items: Array<{ label: string; value?: string; hint?: string }> }) {
+function InfoGrid({ items }: { items: Array<{ label: string; value?: string; hint?: string; valueClass?: string }> }) {
   return (
     <>
-      {items.map(({ label, value, hint }) => (
+      {items.map(({ label, value, hint, valueClass }) => (
         <div key={label}>
           <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
-          {value ? <p className="font-medium text-gray-900 dark:text-white">{value}</p> : <p className="text-sm text-gray-400 dark:text-gray-500">{hint}</p>}
+          {value
+            ? <p className={`font-medium ${valueClass || 'text-gray-900 dark:text-white'}`}>{value}</p>
+            : <p className="text-sm text-gray-400 dark:text-gray-500">{hint}</p>}
         </div>
       ))}
     </>
