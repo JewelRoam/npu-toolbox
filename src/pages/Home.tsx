@@ -19,7 +19,7 @@ interface NPUStatus {
 
 interface HardwareInfo {
   cpu: { name: string; cores: number; threads: number; frequency: string; temperature: number; usage: number }
-  gpu: { name: string; vram: string; driver: string; usage: number }
+  gpu: { name: string; vram_total: string; vram_used: string; driver: string; usage: number }
   memory: { total: string; used: string; usage: number; slots: string }
   npu: NPUStatus
   storage: Array<{ name: string; size: string; health: number; temp: number; storage_type: string }>
@@ -212,7 +212,7 @@ export function Home() {
           <InfoCard
             label="GPU"
             value={hardwareInfo.gpu.name}
-            sub={`${hardwareInfo.gpu.vram} · ${hardwareInfo.gpu.usage}%`}
+            sub={`${hardwareInfo.gpu.vram_used ? hardwareInfo.gpu.vram_used + ' / ' : ''}${hardwareInfo.gpu.vram_total} · ${hardwareInfo.gpu.usage}%`}
             bar={hardwareInfo.gpu.usage}
           />
           <InfoCard
