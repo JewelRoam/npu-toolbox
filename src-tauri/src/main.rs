@@ -4,6 +4,7 @@ mod commands;
 mod npu_detector;
 mod openvino;
 mod ps;
+mod python_env;
 
 use log::info;
 use tauri::Manager;
@@ -45,9 +46,15 @@ fn main() {
             commands::ollama_stop_generation,
             // OpenVINO
             openvino::detect_openvino,
+            openvino::install_openvino,
+            openvino::uninstall_openvino,
             openvino::get_recommended_models,
             openvino::get_install_instructions,
             openvino::test_openvino_inference,
+            // Python env
+            python_env::get_env_status,
+            python_env::init_env,
+            python_env::remove_env,
         ])
         .setup(|app| {
             info!("Application initialized");

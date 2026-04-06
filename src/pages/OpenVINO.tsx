@@ -1,6 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { CheckCircle, XCircle, Download, Cpu, ExternalLink, RefreshCw, Terminal, Package, Play } from 'lucide-react'
+import { listen } from '@tauri-apps/api/event'
+import {
+  CheckCircle, XCircle, Download, Cpu, ExternalLink, RefreshCw,
+  Terminal, Package, Play, Trash2, Loader2,
+} from 'lucide-react'
 
 interface OpenVINOStatus {
   installed: boolean
@@ -29,6 +33,11 @@ interface InferenceTestResult {
   message: string
 }
 
+interface PipResult {
+  success: boolean
+  message: string
+}
+
 function formatSize(mb: number): string {
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`
 }
@@ -36,30 +45,56 @@ function formatSize(mb: number): string {
 export function OpenVINOPage() {
   const [status, setStatus] = useState<OpenVINOStatus | null>(null)
   const [models, setModels] = useState<ModelInfo[]>([])
-  const [instructions, setInstructions] = useState('')
   const [loading, setLoading] = useState(true)
   const [testResult, setTestResult] = useState<InferenceTestResult | null>(null)
   const [testDevice, setTestDevice] = useState('CPU')
   const [testing, setTesting] = useState(false)
+  const [installing, setInstalling] = useState(false)
+  const [uninstalling, setUninstalling] = useState(false)
+  const [pipProgress, setPipProgress] = useState<string[]>([])
 
-  const fetchAll = async () => {
+  const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [s, m, i] = await Promise.all([
+      const [s, m] = await Promise.all([
         invoke<OpenVINOStatus>('detect_openvino'),
         invoke<ModelInfo[]>('get_recommended_models'),
-        invoke<string>('get_install_instructions'),
       ])
       setStatus(s)
       setModels(m)
-      setInstructions(i)
-      if (s.available_devices.length > 0) {
-        setTestDevice(s.available_devices[0])
-      }
+      if (s.available_devices.length > 0) setTestDevice(s.available_devices[0])
     } catch (err) {
       console.error('Failed to fetch OpenVINO info:', err)
     } finally {
       setLoading(false)
+    }
+  }, [])
+
+  const handleInstall = async () => {
+    setInstalling(true)
+    setPipProgress([])
+    try {
+      const result = await invoke<PipResult>('install_openvino')
+      if (!result.success) setPipProgress(prev => [...prev, result.message])
+      await fetchAll()
+    } catch (err) {
+      setPipProgress(prev => [...prev, `错误: ${err}`])
+    } finally {
+      setInstalling(false)
+    }
+  }
+
+  const handleUninstall = async () => {
+    setUninstalling(true)
+    setPipProgress([])
+    try {
+      const result = await invoke<PipResult>('uninstall_openvino')
+      if (!result.success) setPipProgress(prev => [...prev, result.message])
+      await fetchAll()
+    } catch (err) {
+      setPipProgress(prev => [...prev, `错误: ${err}`])
+    } finally {
+      setUninstalling(false)
     }
   }
 
@@ -76,7 +111,14 @@ export function OpenVINOPage() {
     }
   }
 
-  useEffect(() => { fetchAll() }, [])
+  useEffect(() => {
+    const unlisten = listen<{ line: string }>('pip-progress', (event) => {
+      setPipProgress(prev => [...prev, event.payload.line])
+    })
+    return () => { unlisten.then(fn => fn()) }
+  }, [])
+
+  useEffect(() => { fetchAll() }, [fetchAll])
 
   if (loading || !status) {
     return (
@@ -89,14 +131,24 @@ export function OpenVINOPage() {
     )
   }
 
+  const busy = installing || uninstalling
+
   return (
     <div className="space-y-6">
       <PageHeader onRefresh={fetchAll} loading={loading} />
 
-      {/* Status Card */}
-      <StatusCard status={status} />
+      <StatusCard
+        status={status}
+        onInstall={handleInstall}
+        onUninstall={handleUninstall}
+        installing={installing}
+        uninstalling={uninstalling}
+      />
 
-      {/* Environment Details */}
+      {(busy || pipProgress.length > 0) && (
+        <PipProgressLog lines={pipProgress} active={busy} />
+      )}
+
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
         <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
           <Terminal className="w-5 h-5 text-gray-500 dark:text-gray-400" /> 环境检测
@@ -107,13 +159,11 @@ export function OpenVINOPage() {
           <EnvItem label="NPU 插件" value={status.npu_plugin_available ? '可用' : '不可用'} ok={status.npu_plugin_available} />
           {status.install_path && (
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">安装路径</p>
-              <p className="font-mono text-sm text-gray-900 dark:text-white">{status.install_path}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">虚拟环境路径</p>
+              <p className="font-mono text-sm text-gray-900 dark:text-white truncate">{status.install_path}</p>
             </div>
           )}
         </div>
-
-        {/* Available Devices */}
         {status.available_devices.length > 0 && (
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">可用设备</p>
@@ -137,7 +187,6 @@ export function OpenVINOPage() {
         )}
       </div>
 
-      {/* Inference Test */}
       {status.installed && status.available_devices.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
           <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
@@ -192,28 +241,25 @@ export function OpenVINOPage() {
         </div>
       )}
 
-      {/* Install Guide */}
-      {!status.installed && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
-          <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-            <Download className="w-5 h-5 text-gray-500 dark:text-gray-400" /> 安装指南
-          </h3>
-          <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
-            <pre className="text-sm font-mono text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{instructions}</pre>
+      {!status.python_available && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <XCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5" />
+            <div>
+              <p className="font-medium text-amber-800 dark:text-amber-300">未检测到 Python</p>
+              <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
+                安装 OpenVINO 需要系统已安装 Python 3.9+。
+                请从{' '}
+                <a href="https://www.python.org/downloads/" target="_blank" rel="noopener noreferrer" className="underline">
+                  python.org
+                </a>{' '}
+                下载安装，安装时请勾选 "Add Python to PATH"。
+              </p>
+            </div>
           </div>
-          <a
-            href="https://docs.openvino.ai/latest/get_started.html"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-2 mt-3 text-sm text-primary-500 hover:underline"
-          >
-            <ExternalLink className="w-4 h-4" />
-            OpenVINO 官方文档
-          </a>
         </div>
       )}
 
-      {/* Recommended Models */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
         <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
           <Package className="w-5 h-5 text-gray-500 dark:text-gray-400" /> 推荐模型
@@ -250,7 +296,6 @@ export function OpenVINOPage() {
         </div>
       </div>
 
-      {/* NPU Note */}
       {status.npu_plugin_available && (
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
           <div className="flex items-start gap-3">
@@ -258,8 +303,7 @@ export function OpenVINOPage() {
             <div>
               <p className="font-medium text-blue-800 dark:text-blue-300">NPU 加速可用</p>
               <p className="text-sm text-blue-600 dark:text-blue-400 mt-1">
-                检测到 NPU 设备，OpenVINO 可通过 NPU 插件进行推理加速。
-                使用时指定设备为 "NPU" 即可激活。
+                检测到 NPU 设备，OpenVINO 可通过 NPU 插件进行推理加速。使用时指定设备为 "NPU" 即可激活。
               </p>
             </div>
           </div>
@@ -283,7 +327,15 @@ function PageHeader({ onRefresh, loading }: { onRefresh: () => void; loading: bo
   )
 }
 
-function StatusCard({ status }: { status: OpenVINOStatus }) {
+function StatusCard({
+  status, onInstall, onUninstall, installing, uninstalling,
+}: {
+  status: OpenVINOStatus
+  onInstall: () => void
+  onUninstall: () => void
+  installing: boolean
+  uninstalling: boolean
+}) {
   return (
     <div className={`p-6 rounded-xl border-2 ${
       status.installed
@@ -308,7 +360,47 @@ function StatusCard({ status }: { status: OpenVINOStatus }) {
               : '需要安装 OpenVINO 才能使用 AI 推理功能'}
           </p>
         </div>
+        <div className="flex gap-2">
+          {status.installed ? (
+            <button
+              onClick={onUninstall}
+              disabled={installing || uninstalling}
+              className="px-4 py-2 text-sm border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 flex items-center gap-2 transition-colors"
+            >
+              {uninstalling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              {uninstalling ? '卸载中...' : '卸载'}
+            </button>
+          ) : (
+            <button
+              onClick={onInstall}
+              disabled={installing || uninstalling || !status.python_available}
+              className="px-4 py-2 text-sm bg-primary-500 text-white rounded-lg hover:bg-primary-600 disabled:opacity-50 flex items-center gap-2 transition-colors"
+            >
+              {installing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              {installing ? '安装中...' : '一键安装'}
+            </button>
+          )}
+        </div>
       </div>
+    </div>
+  )
+}
+
+function PipProgressLog({ lines, active }: { lines: string[]; active: boolean }) {
+  const refCb = useCallback((el: HTMLPreElement | null) => {
+    if (el) el.scrollTop = el.scrollHeight
+  }, [lines.length])
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+      <h3 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+        {active && <Loader2 className="w-4 h-4 animate-spin text-primary-500" />}
+        <Terminal className="w-4 h-4 text-gray-500" />
+        {active ? (lines.length === 0 ? '正在准备...' : '安装日志') : '安装日志'}
+      </h3>
+      <pre ref={refCb} className="bg-gray-900 dark:bg-gray-950 text-green-400 text-xs font-mono rounded-lg p-4 max-h-48 overflow-y-auto">
+        {lines.length > 0 ? lines.join('\n') : (active ? '等待 pip 输出...\n' : '')}
+      </pre>
     </div>
   )
 }

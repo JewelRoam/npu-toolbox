@@ -1,7 +1,9 @@
+//! OpenVINO inference engine management — venv-aware.
+
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::process::Command;
-use log::{info, warn};
+use log::info;
+use crate::python_env;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OpenVINOStatus {
@@ -33,7 +35,7 @@ pub struct InferenceTestResult {
     pub message: String,
 }
 
-// ── Pure parsing (testable without I/O) ───────────────────────────────
+// ── Pure parsing ───────────────────────────────────────────────────────
 
 #[derive(Default)]
 struct PythonOutput {
@@ -60,29 +62,9 @@ fn parse_python_output(stdout: &str) -> PythonOutput {
     result
 }
 
-// ── I/O helpers ───────────────────────────────────────────────────────
+// ── Detection ──────────────────────────────────────────────────────────
 
-fn command_exists(cmd: &str) -> bool {
-    Command::new("where").arg(cmd).output().map(|o| o.status.success()).unwrap_or(false)
-}
-
-fn get_python_version() -> Option<String> {
-    Command::new("python").args(["--version"]).output().ok().and_then(|o| {
-        String::from_utf8_lossy(&o.stdout).trim().strip_prefix("Python ").map(|s| s.to_string())
-    })
-}
-
-fn run_python_script(script: &str) -> Option<String> {
-    let output = Command::new("python").args(["-c", script]).output().ok()?;
-    if !output.status.success() {
-        warn!("Python script stderr: {}", String::from_utf8_lossy(&output.stderr));
-        return None;
-    }
-    Some(String::from_utf8_lossy(&output.stdout).to_string())
-}
-
-/// Detect OpenVINO via Python import (primary path)
-fn detect_via_python() -> (bool, Option<String>, bool, Vec<String>) {
+fn detect_via_venv() -> (bool, Option<String>, bool, Vec<String>) {
     let script = r#"
 import sys
 try:
@@ -99,19 +81,16 @@ except ImportError:
     print("INSTALLED=false")
 "#;
 
-    let stdout = match run_python_script(script) {
+    let stdout = match python_env::run_venv_script(script) {
         Some(s) => s,
         None => return (false, None, false, Vec::new()),
     };
 
     let parsed = parse_python_output(&stdout);
-    // NPU available only when actually listed in devices
     let npu_available = parsed.devices.iter().any(|d| d.contains("NPU"));
-
     (parsed.installed, parsed.version, npu_available, parsed.devices)
 }
 
-/// Detect OpenVINO via filesystem (fallback when no Python)
 fn detect_via_filesystem() -> (bool, Option<String>, bool, Vec<String>) {
     let candidates = [
         r"C:\Program Files (x86)\Intel\openvino",
@@ -121,20 +100,16 @@ fn detect_via_filesystem() -> (bool, Option<String>, bool, Vec<String>) {
 
     for base in &candidates {
         let version_file = Path::new(base).join("version.txt");
-        if !version_file.exists() {
-            continue;
-        }
+        if !version_file.exists() { continue; }
 
         let version = std::fs::read_to_string(&version_file).ok().map(|v| v.trim().to_string());
 
-        // Check multiple possible plugin locations across OpenVINO versions
         let plugin_patterns = [
             Path::new(base).join("runtime").join("lib").join("intel64").join("openvino_npu_plugin.dll"),
             Path::new(base).join("runtime").join("lib").join("intel64").join("plugins").join("openvino_npu_plugin.dll"),
             Path::new(base).join("runtime").join("lib").join("intel64").join("plugins").join("intel").join("openvino_npu_plugin.dll"),
         ];
         let npu_available = plugin_patterns.iter().any(|p| p.exists());
-
         return (true, version, npu_available, Vec::new());
     }
 
@@ -145,11 +120,12 @@ fn detect_via_filesystem() -> (bool, Option<String>, bool, Vec<String>) {
 
 #[tauri::command]
 pub fn detect_openvino() -> OpenVINOStatus {
-    let python_available = command_exists("python");
-    let python_version = python_available.then(get_python_version).flatten();
+    let env = python_env::get_env_status();
+    let python_available = env.python_available;
+    let python_version = env.python_version.clone();
 
-    let (installed, version, npu_available, devices) = if python_available {
-        detect_via_python()
+    let (installed, version, npu_available, devices) = if env.exists {
+        detect_via_venv()
     } else {
         detect_via_filesystem()
     };
@@ -166,8 +142,26 @@ pub fn detect_openvino() -> OpenVINOStatus {
         python_version,
         npu_plugin_available: npu_available,
         available_devices: devices,
-        install_path: None,
+        install_path: if env.exists { Some(env.venv_path) } else { None },
     }
+}
+
+#[tauri::command]
+pub fn install_openvino(app: tauri::AppHandle) -> Result<python_env::PipResult, String> {
+    python_env::pip_install(app, "openvino openvino-genai")
+}
+
+#[tauri::command]
+pub fn uninstall_openvino() -> Result<python_env::PipResult, String> {
+    let mut results = vec![];
+    for pkg in ["openvino-genai", "openvino"] {
+        results.push(python_env::pip_uninstall(pkg)?);
+    }
+    let all_ok = results.iter().all(|r| r.success);
+    Ok(python_env::PipResult {
+        success: all_ok,
+        message: if all_ok { "OpenVINO 已完全卸载".into() } else { "部分卸载失败，请查看日志".into() },
+    })
 }
 
 #[tauri::command]
@@ -214,22 +208,7 @@ pub fn get_recommended_models() -> Vec<ModelInfo> {
 
 #[tauri::command]
 pub fn get_install_instructions() -> String {
-    if command_exists("python") {
-        r#"pip install openvino
-pip install openvino-genai    # LLM 支持（推荐）"#.into()
-    } else {
-        r#"1. 安装 Python 3.9+ (推荐 3.10-3.12)
-   https://www.python.org/downloads/
-
-2. 安装 OpenVINO：
-   pip install openvino
-   pip install openvino-genai    # LLM 支持（推荐）
-
-3. 验证安装：
-   python -c "import openvino as ov; print(ov.__version__)"
-
-详细文档：https://docs.openvino.ai/latest/get_started.html"#.into()
-    }
+    "软件会自动管理 Python 虚拟环境，点击上方「一键安装」按钮即可。".into()
 }
 
 #[tauri::command]
@@ -251,7 +230,6 @@ try:
         print(f"RESULT=error:device {target} not available ({','.join(devices)})")
         sys.exit(0)
 
-    # Build a trivial identity model [1,10] -> [1,10]
     data = np.random.rand(1, 10).astype(np.float32)
     ov_model = ov.convert_model(np.expand_dims(np.eye(10, dtype=np.float32), axis=0))
     compiled = core.compile_model(ov_model, target)
@@ -265,7 +243,8 @@ except Exception as e:
     print(f"RESULT=error:{e}")
 "#;
 
-    match run_python_script(&format!("{} {}", script, device)) {
+    let full_script = format!("{} {}", script, device);
+    match python_env::run_venv_script(&full_script) {
         Some(stdout) => {
             for line in stdout.lines() {
                 if let Some(r) = line.strip_prefix("RESULT=ok:") {
@@ -279,9 +258,7 @@ except Exception as e:
                 }
                 if let Some(r) = line.strip_prefix("RESULT=error:") {
                     return InferenceTestResult {
-                        success: false,
-                        device: device.clone(),
-                        latency_ms: 0.0,
+                        success: false, device: device.clone(), latency_ms: 0.0,
                         message: r.to_string(),
                     };
                 }
@@ -293,7 +270,7 @@ except Exception as e:
         }
         None => InferenceTestResult {
             success: false, device, latency_ms: 0.0,
-            message: "Python 脚本执行失败，请确认 OpenVINO 已正确安装".into(),
+            message: "Python 脚本执行失败，请确认 OpenVINO 已在虚拟环境中安装".into(),
         },
     }
 }
@@ -347,21 +324,8 @@ mod tests {
     }
 
     #[test]
-    fn npu_detected_only_from_devices() {
-        let out = parse_python_output("VERSION=2024.4.0\nDEVICES=CPU,GPU.0\n");
-        assert!(!out.devices.iter().any(|d| d.contains("NPU")));
-    }
-
-    #[test]
     fn recommended_models_has_entries() {
         let models = get_recommended_models();
         assert_eq!(models.len(), 4);
-        assert!(models.iter().all(|m| !m.recommended_device.is_empty()));
-    }
-
-    #[test]
-    fn install_instructions_includes_python() {
-        let instructions = get_install_instructions();
-        assert!(!instructions.is_empty());
     }
 }

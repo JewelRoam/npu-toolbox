@@ -1,0 +1,6 @@
+feat: add python venv management and one-click OpenVINO install/uninstall  
+  
+- Create python_env.rs with managed venv under AppData/NPUToolbox/venv  
+- Refactor openvino.rs to use venv, add install/uninstall commands  
+- Update OpenVINO.tsx with one-click buttons and pip progress terminal  
+- Add Ollama download button to AIChat disconnected warning  

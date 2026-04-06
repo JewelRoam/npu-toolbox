@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { Send, Bot, User, Loader2, ChevronDown, AlertCircle, Plug, Square, Trash2, Copy, Check } from 'lucide-react'
+import { Send, Bot, User, Loader2, ChevronDown, AlertCircle, Plug, Square, Trash2, Copy, Check, Download } from 'lucide-react'
 
 interface Model {
   name: string
@@ -232,13 +232,20 @@ export function AIChat() {
           <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-medium text-amber-800 dark:text-amber-300">无法连接到 Ollama</p>
-            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-              请确保 Ollama 正在运行（默认端口 11434）。你可以从{' '}
-              <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="underline">
-                ollama.com
-              </a>{' '}
-              下载安装，或前往工具页面一键启动。
-            </p>
+              <div className="flex items-center gap-3 mt-2">
+                <a
+                  href="https://ollama.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 dark:bg-amber-800/40 text-amber-700 dark:text-amber-300 rounded-lg text-xs font-medium hover:bg-amber-200 dark:hover:bg-amber-800/60 transition-colors"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  下载 Ollama
+                </a>
+                <span className="text-xs text-amber-500 dark:text-amber-400">
+                  安装后重启应用即可自动连接
+                </span>
+              </div>
           </div>
         </div>
       )}
