@@ -5,7 +5,7 @@ import { tempColor } from '../utils/tempColor'
 
 interface HardwareInfo {
   cpu: { name: string; cores: number; threads: number; frequency: string; temperature: number; usage: number }
-  gpu: { name: string; vram: string; driver: string; usage: number }
+  gpu: { name: string; vram_total: string; vram_used: string; driver: string; usage: number }
   memory: { total: string; used: string; usage: number; slots: string }
   npu: { has_npu: boolean; vendor: string; model: string; compute_units: number; tops: number; driver_version: string; status: string; recommendations: string[] }
   storage: Array<{ name: string; size: string; health: number; temp: number; storage_type: string }>
@@ -155,10 +155,13 @@ export function HardwareInfo() {
       <Section title="GPU 显卡" icon={<Monitor className="w-5 h-5 text-gray-500 dark:text-gray-400" />}>
         <InfoGrid items={[
           { label: '型号', value: hardware.gpu.name },
-          { label: '显存', value: hardware.gpu.vram },
+          { label: '显存', value: hardware.gpu.vram_used ? `${hardware.gpu.vram_used} / ${hardware.gpu.vram_total}` : hardware.gpu.vram_total },
           { label: '驱动版本', value: hardware.gpu.driver },
-          { label: '使用率', value: `${hardware.gpu.usage}%` },
         ]} />
+        <div className="col-span-2">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">使用率</p>
+          <ProgressBar value={hardware.gpu.usage} />
+        </div>
       </Section>
 
       {/* Memory */}

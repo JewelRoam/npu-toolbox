@@ -26,7 +26,8 @@ pub struct CPUInfo {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct GPUInfo {
     pub name: String,
-    pub vram: String,
+    pub vram_total: String,
+    pub vram_used: String,
     pub driver: String,
     pub usage: f32,
 }
@@ -215,39 +216,67 @@ async fn get_cpu_info() -> Result<CPUInfo, String> {
     }
 }
 
-/// Get real GPU information
+/// Get real GPU information including utilization and VRAM usage.
 async fn get_gpu_info() -> Result<GPUInfo, String> {
     info!("Getting GPU info...");
-    
+
     let script = r#"
         try {
             $gpu = Get-CimInstance -ClassName Win32_VideoController | Select-Object -First 1
             $name = $gpu.Name
             $vramBytes = $gpu.AdapterRAM
             $driver = $gpu.DriverVersion
-            
+
             if ($vramBytes -and $vramBytes -gt 0) {
-                $vram = "$([math]::Round($vramBytes / 1GB, 0)) GB"
+                $vramTotal = "$([math]::Round($vramBytes / 1GB, 1)) GB"
+                $vramTotalBytes = $vramBytes
             } else {
-                $vram = "Shared Memory"
+                $vramTotal = "Shared Memory"
+                $vramTotalBytes = 0
             }
-            
+
+            # GPU utilization via performance counter
+            $usage = 0
+            try {
+                $gpuCounter = Get-Counter '\GPU Engine(*)\Utilization Percentage' -ErrorAction Stop
+                if ($gpuCounter) {
+                    $total = ($gpuCounter.CounterSamples | Where-Object { $_.CookedValue -gt 0 } | Measure-Object -Property CookedValue -Sum).Sum
+                    # Normalize: each engine type shares the GPU, divide by engine count
+                    $engines = ($gpuCounter.CounterSamples | Where-Object { $_.CookedValue -gt 0 }).Count
+                    if ($engines -gt 0) { $usage = [math]::Min([math]::Round($total / $engines, 0), 100) }
+                }
+            } catch {}
+
+            # VRAM used via performance counter
+            $vramUsed = ""
+            try {
+                $vramCounter = Get-Counter '\GPU Adapter Memory(*)\Dedicated Usage' -ErrorAction Stop
+                if ($vramCounter -and $vramTotalBytes -gt 0) {
+                    $usedBytes = ($vramCounter.CounterSamples | Measure-Object -Property CookedValue -Sum).Sum
+                    $vramUsed = "$([math]::Round($usedBytes / 1GB, 1)) GB"
+                }
+            } catch {}
+
             Write-Output "NAME=$name"
-            Write-Output "VRAM=$vram"
+            Write-Output "VRAM_TOTAL=$vramTotal"
+            Write-Output "VRAM_USED=$vramUsed"
             Write-Output "DRIVER=$driver"
+            Write-Output "USAGE=$usage"
         } catch {
             Write-Output "ERROR=$($_.Exception.Message)"
         }
     "#;
-    
+
     match ps::run(script) {
         Ok(output) => {
             let lines: Vec<&str> = output.lines().collect();
             let mut name = String::new();
-            let mut vram = String::new();
+            let mut vram_total = String::new();
+            let mut vram_used = String::new();
             let mut driver = String::new();
+            let mut usage = 0f32;
             let mut has_error = false;
-            
+
             for line in lines {
                 if line.starts_with("ERROR=") {
                     has_error = true;
@@ -255,22 +284,27 @@ async fn get_gpu_info() -> Result<GPUInfo, String> {
                     break;
                 } else if line.starts_with("NAME=") {
                     name = line[5..].to_string();
-                } else if line.starts_with("VRAM=") {
-                    vram = line[5..].to_string();
+                } else if line.starts_with("VRAM_TOTAL=") {
+                    vram_total = line[11..].to_string();
+                } else if line.starts_with("VRAM_USED=") {
+                    vram_used = line[10..].to_string();
                 } else if line.starts_with("DRIVER=") {
                     driver = line[7..].to_string();
+                } else if line.starts_with("USAGE=") {
+                    usage = line[6..].parse().unwrap_or(0.0);
                 }
             }
-            
+
             if has_error || name.is_empty() {
                 return Err("Failed to get GPU info".to_string());
             }
-            
+
             Ok(GPUInfo {
                 name,
-                vram,
+                vram_total,
+                vram_used,
                 driver,
-                usage: 0.0, // GPU usage requires specialized APIs
+                usage,
             })
         }
         Err(e) => Err(e),

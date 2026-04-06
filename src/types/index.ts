@@ -11,7 +11,8 @@ export interface CPUInfo {
 
 export interface GPUInfo {
   name: string
-  vram: string
+  vram_total: string
+  vram_used: string
   driver: string
   usage: number
 }
