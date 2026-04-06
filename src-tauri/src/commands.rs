@@ -43,10 +43,11 @@ pub struct MemoryInfo {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StorageInfo {
     pub name: String,
-    pub size: String,
-    pub health: u32,
-    pub temp: f32,
-    pub storage_type: String,
+    pub filesystem: String,
+    pub total: String,
+    pub used: String,
+    pub free: String,
+    pub usage: f32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -380,62 +381,56 @@ async fn get_memory_info() -> Result<MemoryInfo, String> {
     }
 }
 
-/// Get real storage information
+/// Get partition-level storage usage (C:, D:, …)
 async fn get_storage_list() -> Result<Vec<StorageInfo>, String> {
     info!("Getting storage info...");
-    
+
     let script = r#"
         try {
-            $disks = Get-CimInstance -ClassName Win32_DiskDrive
+            $volumes = Get-CimInstance -ClassName Win32_Volume |
+                Where-Object { $_.DriveType -eq 3 -and $_.Name -match '^[A-Z]:\\' -and $_.Capacity -gt 0 } |
+                Sort-Object Name
             $result = @()
-            
-            foreach ($disk in $disks) {
-                $name = $disk.Model
-                $sizeGB = [math]::Round($disk.Size / 1GB, 0)
-                
-                # Determine storage type
-                $mediaType = $disk.MediaType
-                $storageType = if ($mediaType -match "SSD|NVMe|Fixed" -or $name -match "SSD|NVMe") { 
-                    "SSD/NVMe" 
-                } else { 
-                    "HDD" 
-                }
-                
-                $result += "$name|$sizeGB|$storageType"
+            foreach ($vol in $volumes) {
+                $totalGB = [math]::Round($vol.Capacity / 1GB, 1)
+                $freeGB = [math]::Round($vol.FreeSpace / 1GB, 1)
+                $usedGB = [math]::Round(($vol.Capacity - $vol.FreeSpace) / 1GB, 1)
+                $usage = [math]::Round(($vol.Capacity - $vol.FreeSpace) / $vol.Capacity * 100, 0)
+                $fs = if ($vol.FileSystem) { $vol.FileSystem } else { "Unknown" }
+                $result += "$($vol.Name.TrimEnd('\'))|$fs|$totalGB|$usedGB|$freeGB|$usage"
             }
-            
             Write-Output ($result -join "`n")
         } catch {
             Write-Output "ERROR=$($_.Exception.Message)"
         }
     "#;
-    
+
     match ps::run(script) {
         Ok(output) => {
             let output = output.trim();
             if output.starts_with("ERROR=") || output.is_empty() {
                 return Err("Failed to get storage info".to_string());
             }
-            
+
             let mut storage_list = Vec::new();
-            
             for line in output.lines() {
                 let parts: Vec<&str> = line.split('|').collect();
-                if parts.len() >= 3 {
+                if parts.len() >= 6 {
                     storage_list.push(StorageInfo {
                         name: parts[0].to_string(),
-                        size: format!("{} GB", parts[1]),
-                        health: 100, // Health requires SMART data
-                        temp: 0.0,   // Temperature requires specialized tools
-                        storage_type: parts[2].to_string(),
+                        filesystem: parts[1].to_string(),
+                        total: format!("{} GB", parts[2]),
+                        used: format!("{} GB", parts[3]),
+                        free: format!("{} GB", parts[4]),
+                        usage: parts[5].parse().unwrap_or(0.0),
                     });
                 }
             }
-            
+
             if storage_list.is_empty() {
-                return Err("No storage devices found".to_string());
+                return Err("No storage partitions found".to_string());
             }
-            
+
             Ok(storage_list)
         }
         Err(e) => Err(e),

@@ -37,10 +37,11 @@ export interface NPUInfo {
 
 export interface StorageInfo {
   name: string
-  size: string
-  health: number
-  temp: number
-  storage_type: string
+  filesystem: string
+  total: string
+  used: string
+  free: string
+  usage: number
 }
 
 export interface HardwareInfo {

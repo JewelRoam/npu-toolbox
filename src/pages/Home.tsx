@@ -22,7 +22,7 @@ interface HardwareInfo {
   gpu: { name: string; vram_total: string; vram_used: string; driver: string; usage: number }
   memory: { total: string; used: string; usage: number; slots: string }
   npu: NPUStatus
-  storage: Array<{ name: string; size: string; health: number; temp: number; storage_type: string }>
+  storage: Array<{ name: string; filesystem: string; total: string; used: string; free: string; usage: number }>
 }
 
 const toolCategories = [
@@ -222,7 +222,7 @@ export function Home() {
             bar={hardwareInfo.memory.usage}
             barColor="green"
           />
-          <InfoCard label="存储" value={`${hardwareInfo.storage.length} 个磁盘`} sub={hardwareInfo.storage[0]?.size || 'N/A'} />
+          <InfoCard label="存储" value={`${hardwareInfo.storage.length} 个分区`} sub={hardwareInfo.storage[0] ? `${hardwareInfo.storage[0].name} ${hardwareInfo.storage[0].free} 可用` : 'N/A'} />
         </div>
       )}
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { Cpu, HardDrive, MemoryStick, Monitor, Thermometer, RefreshCw, Pause, Play } from 'lucide-react'
+import { Cpu, HardDrive, MemoryStick, Monitor, RefreshCw, Pause, Play } from 'lucide-react'
 import { tempColor } from '../utils/tempColor'
 
 interface HardwareInfo {
@@ -8,7 +8,7 @@ interface HardwareInfo {
   gpu: { name: string; vram_total: string; vram_used: string; driver: string; usage: number }
   memory: { total: string; used: string; usage: number; slots: string }
   npu: { has_npu: boolean; vendor: string; model: string; compute_units: number; tops: number; driver_version: string; status: string; recommendations: string[] }
-  storage: Array<{ name: string; size: string; health: number; temp: number; storage_type: string }>
+  storage: Array<{ name: string; filesystem: string; total: string; used: string; free: string; usage: number }>
 }
 
 const REFRESH_INTERVAL_MS = 5000
@@ -182,27 +182,23 @@ export function HardwareInfo() {
           <HardDrive className="w-5 h-5 text-gray-500 dark:text-gray-400" /> 存储
         </h3>
         <div className="space-y-4">
-          {hardware.storage.map((disk, idx) => (
+          {hardware.storage.map((part, idx) => (
             <div key={idx} className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
               <div className="flex justify-between items-start mb-2">
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{disk.name}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{disk.size} {disk.storage_type}</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{part.name}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{part.filesystem} · {part.used} / {part.total}</p>
                 </div>
-                {disk.health > 0 && disk.health < 100 && (
-                  <span className={`px-2 py-1 rounded-full text-xs ${disk.health > 90 ? 'bg-green-100 dark:bg-green-800 text-green-700 dark:text-green-300' : 'bg-amber-100 dark:bg-amber-800 text-amber-700 dark:text-amber-300'}`}>
-                    健康度 {disk.health}%
-                  </span>
-                )}
+                <span className={`px-2 py-1 rounded-full text-xs ${
+                  part.usage > 90 ? 'bg-red-100 dark:bg-red-800 text-red-700 dark:text-red-300'
+                    : part.usage > 70 ? 'bg-amber-100 dark:bg-amber-800 text-amber-700 dark:text-amber-300'
+                    : 'bg-green-100 dark:bg-green-800 text-green-700 dark:text-green-300'
+                }`}>
+                  {part.usage}% 已用
+                </span>
               </div>
-              {disk.temp > 0 ? (
-                <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-                  <Thermometer className="w-4 h-4" />
-                  <span className={tempColor(disk.temp)}>{disk.temp}°C</span>
-                </div>
-              ) : (
-                <p className="text-xs text-gray-400 dark:text-gray-500">SMART 数据需要管理员权限读取</p>
-              )}
+              <ProgressBar value={part.usage} color={part.usage > 90 ? 'red' : part.usage > 70 ? 'amber' : 'green'} />
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{part.free} 可用</p>
             </div>
           ))}
         </div>
@@ -235,8 +231,14 @@ function InfoGrid({ items }: { items: Array<{ label: string; value?: string; hin
   )
 }
 
-function ProgressBar({ value, color = 'primary' }: { value: number; color?: 'primary' | 'green' }) {
-  const bgColor = color === 'green' ? 'bg-green-500' : 'bg-primary-500'
+function ProgressBar({ value, color = 'primary' }: { value: number; color?: 'primary' | 'green' | 'red' | 'amber' }) {
+  const bgMap: Record<string, string> = {
+    primary: 'bg-primary-500',
+    green: 'bg-green-500',
+    red: 'bg-red-500',
+    amber: 'bg-amber-500',
+  }
+  const bgColor = bgMap[color] || bgMap.primary
   return (
     <div className="flex items-center gap-3">
       <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
