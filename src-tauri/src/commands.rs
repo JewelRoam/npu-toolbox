@@ -31,6 +31,7 @@ pub struct GPUInfo {
     pub vram_used: String,
     pub driver: String,
     pub usage: f32,
+    pub temperature: f32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -82,55 +83,105 @@ pub struct SystemInfo {
 // ============ Helper Functions ============
 
 /// Get CPU temperature using multiple fallback methods.
+/// Priority: perf counter → WMI ACPI → CIM formatted → registry thermalcomfort
 /// Returns -1.0 if unavailable.
 fn get_cpu_temperature() -> f32 {
     let script = r#"
-        # Method 1: Performance counter thermal zone (no admin needed)
+        $result = -1
+
+        # Method 1: Performance counter thermal zone (most reliable, no admin)
         try {
-            $thermal = Get-CimInstance -ClassName Win32_PerfFormattedData_Counters_ThermalZoneInformation -ErrorAction Stop
-            if ($thermal) {
-                $maxTemp = ($thermal | ForEach-Object { $_.Temperature } | Measure-Object -Maximum).Maximum
+            $counters = Get-Counter '\Thermal Zone Information(*)\Temperature' -ErrorAction Stop
+            if ($counters) {
+                $maxTemp = ($counters.CounterSamples |
+                    Where-Object { $_.CookedValue -gt 0 } |
+                    Measure-Object -Property CookedValue -Maximum).Maximum
                 if ($maxTemp -and $maxTemp -gt 0) {
-                    Write-Output "TEMP=$([math]::Round($maxTemp, 1))"
-                    exit 0
+                    $result = [math]::Round($maxTemp, 1)
                 }
             }
         } catch {}
 
-        # Method 2: MSAcpi_ThermalZoneTemperature (may need admin)
-        try {
-            $temps = Get-CimInstance -Namespace "root/wmi" -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction Stop
-            if ($temps) {
-                $maxTemp = ($temps | ForEach-Object { ($_.CurrentTemperature - 2732) / 10 } | Measure-Object -Maximum).Maximum
-                if ($maxTemp -and $maxTemp -gt 0) {
-                    Write-Output "TEMP=$([math]::Round($maxTemp, 1))"
-                    exit 0
-                }
-            }
-        } catch {}
-
-        # Method 3: Registry-based thermal comfort (Windows 11+)
-        try {
-            $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\thermalcomfort\ThermalZones"
-            if (Test-Path $regPath) {
-                $zones = Get-ChildItem -Path $regPath -ErrorAction Stop
-                foreach ($zone in $zones) {
-                    $tempVal = (Get-ItemProperty -Path $zone.PSPath -Name "Temperature" -ErrorAction SilentlyContinue).Temperature
-                    if ($tempVal -and $tempVal -gt 0) {
-                        Write-Output "TEMP=$([math]::Round($tempVal / 10, 1))"
-                        exit 0
+        # Method 2: WMI MSAcpi_ThermalZoneTemperature (may need admin)
+        if ($result -le 0) {
+            try {
+                $temps = Get-CimInstance -Namespace "root/wmi" -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction Stop
+                if ($temps) {
+                    $maxTemp = ($temps | ForEach-Object { ($_.CurrentTemperature - 2732) / 10 } | Measure-Object -Maximum).Maximum
+                    if ($maxTemp -and $maxTemp -gt 0) {
+                        $result = [math]::Round($maxTemp, 1)
                     }
                 }
-            }
-        } catch {}
+            } catch {}
+        }
 
-        Write-Output "TEMP=-1"
+        # Method 3: CIM formatted data class
+        if ($result -le 0) {
+            try {
+                $thermal = Get-CimInstance -ClassName Win32_PerfFormattedData_Counters_ThermalZoneInformation -ErrorAction Stop
+                if ($thermal) {
+                    $maxTemp = ($thermal | ForEach-Object { $_.Temperature } | Measure-Object -Maximum).Maximum
+                    if ($maxTemp -and $maxTemp -gt 0) {
+                        $result = [math]::Round($maxTemp, 1)
+                    }
+                }
+            } catch {}
+        }
+
+        # Method 4: Registry thermalcomfort (Windows 11 24H2+)
+        if ($result -le 0) {
+            try {
+                $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\thermalcomfort\ThermalZones"
+                if (Test-Path $regPath) {
+                    $zones = Get-ChildItem -Path $regPath -ErrorAction Stop
+                    foreach ($zone in $zones) {
+                        $tempVal = (Get-ItemProperty -Path $zone.PSPath -Name "Temperature" -ErrorAction SilentlyContinue).Temperature
+                        if ($tempVal -and $tempVal -gt 0) {
+                            $result = [math]::Round($tempVal / 10, 1)
+                            break
+                        }
+                    }
+                }
+            } catch {}
+        }
+
+        Write-Output "TEMP=$result"
     "#;
 
     if let Ok(output) = ps::run(script) {
         for line in output.lines() {
-            if line.starts_with("TEMP=") {
-                if let Ok(temp) = line[5..].trim().parse::<f32>() {
+            if let Some(temp_str) = line.strip_prefix("TEMP=") {
+                if let Ok(temp) = temp_str.trim().parse::<f32>() {
+                    if temp > 0.0 {
+                        return temp;
+                    }
+                }
+            }
+        }
+    }
+    -1.0
+}
+
+/// Get GPU temperature via nvidia-smi (for NVIDIA GPUs).
+/// Returns -1.0 if unavailable.
+fn get_gpu_temperature() -> f32 {
+    let script = r#"
+        try {
+            $output = & nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits 2>$null
+            if ($output -and $output -match '\d+') {
+                Write-Output "TEMP=$([int]($output -replace '[^\d]',''))"
+            } else {
+                Write-Output "TEMP=-1"
+            }
+        } catch {
+            Write-Output "TEMP=-1"
+        }
+    "#;
+
+    if let Ok(output) = ps::run(script) {
+        for line in output.lines() {
+            if let Some(temp_str) = line.strip_prefix("TEMP=") {
+                if let Ok(temp) = temp_str.trim().parse::<f32>() {
                     if temp > 0.0 {
                         return temp;
                     }
@@ -301,12 +352,15 @@ async fn get_gpu_info() -> Result<GPUInfo, String> {
                 return Err("Failed to get GPU info".to_string());
             }
 
+            let temperature = get_gpu_temperature();
+
             Ok(GPUInfo {
                 name,
                 vram_total,
                 vram_used,
                 driver,
                 usage,
+                temperature,
             })
         }
         Err(e) => Err(e),

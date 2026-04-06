@@ -19,7 +19,7 @@ interface NPUStatus {
 
 interface HardwareInfo {
   cpu: { name: string; cores: number; threads: number; frequency: string; temperature: number; usage: number }
-  gpu: { name: string; vram_total: string; vram_used: string; driver: string; usage: number }
+  gpu: { name: string; vram_total: string; vram_used: string; driver: string; usage: number; temperature: number }
   memory: { total: string; used: string; usage: number; slots: string }
   npu: NPUStatus
   storage: Array<{ name: string; filesystem: string; total: string; used: string; free: string; usage: number }>

@@ -5,7 +5,7 @@ import { tempColor } from '../utils/tempColor'
 
 interface HardwareInfo {
   cpu: { name: string; cores: number; threads: number; frequency: string; temperature: number; usage: number }
-  gpu: { name: string; vram_total: string; vram_used: string; driver: string; usage: number }
+  gpu: { name: string; vram_total: string; vram_used: string; driver: string; usage: number; temperature: number }
   memory: { total: string; used: string; usage: number; slots: string }
   npu: { has_npu: boolean; vendor: string; model: string; compute_units: number; tops: number; driver_version: string; status: string; recommendations: string[] }
   storage: Array<{ name: string; filesystem: string; total: string; used: string; free: string; usage: number }>
@@ -156,6 +156,7 @@ export function HardwareInfo() {
         <InfoGrid items={[
           { label: '型号', value: hardware.gpu.name },
           { label: '显存', value: hardware.gpu.vram_used ? `${hardware.gpu.vram_used} / ${hardware.gpu.vram_total}` : hardware.gpu.vram_total },
+          { label: '温度', value: hardware.gpu.temperature > 0 ? `${hardware.gpu.temperature}°C` : undefined, hint: hardware.gpu.temperature <= 0 ? '不可用 (仅支持 NVIDIA)' : undefined, valueClass: tempColor(hardware.gpu.temperature) },
           { label: '驱动版本', value: hardware.gpu.driver },
         ]} />
         <div className="col-span-2">
