@@ -9,7 +9,8 @@ import {
   HardDrive, 
   Wrench, 
   Settings,
-  Cpu
+  Cpu,
+  Zap
 } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -22,6 +23,7 @@ const navItems = [
   { path: '/creative', icon: Palette, label: '创意工具' },
   { path: '/hardware', icon: HardDrive, label: '硬件检测' },
   { path: '/system', icon: Wrench, label: '系统工具' },
+  { path: '/openvino', icon: Zap, label: 'OpenVINO' },
   { path: '/settings', icon: Settings, label: '设置' },
 ]
 

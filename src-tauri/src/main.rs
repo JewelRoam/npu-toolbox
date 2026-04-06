@@ -2,6 +2,7 @@
 
 mod commands;
 mod npu_detector;
+mod openvino;
 
 use log::info;
 use tauri::Manager;
@@ -36,6 +37,10 @@ fn main() {
             // Settings management
             commands::save_settings,
             commands::load_settings,
+            // OpenVINO
+            openvino::detect_openvino,
+            openvino::get_recommended_models,
+            openvino::get_install_instructions,
         ])
         .setup(|app| {
             info!("Application initialized");

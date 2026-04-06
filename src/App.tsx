@@ -9,6 +9,7 @@ import { CreativeTools } from './pages/CreativeTools'
 import { HardwareInfo } from './pages/HardwareInfo'
 import { SystemTools } from './pages/SystemTools'
 import { Settings } from './pages/Settings'
+import { OpenVINOPage } from './pages/OpenVINO'
 import { NotFound } from './pages/NotFound'
 
 function App() {
@@ -24,6 +25,7 @@ function App() {
           <Route path="creative" element={<CreativeTools />} />
           <Route path="hardware" element={<HardwareInfo />} />
           <Route path="system" element={<SystemTools />} />
+          <Route path="openvino" element={<OpenVINOPage />} />
           <Route path="settings" element={<Settings />} />
           <Route path="*" element={<NotFound />} />
         </Route>
