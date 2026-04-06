@@ -1,52 +1,18 @@
-import { Code, FileCode, GitBranch } from 'lucide-react'
-
-const tools = [
-  { id: 'ollama', name: 'Ollama', description: '本地大模型运行时', status: 'available' as const, icon: Code },
-  { id: 'tabby', name: 'Tabby', description: '自托管 GitHub Copilot 替代', status: 'available' as const, icon: GitBranch },
-  { id: 'code-llama', name: 'CodeLlama', description: 'Meta 代码模型', status: 'available' as const, icon: FileCode },
-  { id: 'deepseek-coder', name: 'DeepSeek Coder', description: '专业代码生成模型', status: 'coming' as const, icon: Code },
-]
+import { Code, GitBranch, Terminal, Bot } from 'lucide-react'
+import { ToolGrid } from '../components/ToolGrid'
 
 export function Programming() {
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">编程助手</h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">AI 驱动的代码辅助工具</p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        {tools.map((tool) => (
-          <div key={tool.id} className="p-6 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
-            <div className="flex items-start justify-between mb-4">
-              <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
-                <tool.icon className="w-6 h-6 text-green-600 dark:text-green-400" />
-              </div>
-              {tool.status === 'available' ? (
-                <span className="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full text-xs">可用</span>
-              ) : (
-                <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full text-xs">即将推出</span>
-              )}
-            </div>
-            <h3 className="font-semibold text-gray-900 dark:text-white mb-1">{tool.name}</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{tool.description}</p>
-            {tool.status === 'available' ? (
-              <div className="flex gap-2">
-                <button className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 transition-colors">
-                  启动
-                </button>
-                <button className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                  设置
-                </button>
-              </div>
-            ) : (
-              <button className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-500 dark:text-gray-400 cursor-not-allowed">
-                即将推出
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
+    <ToolGrid
+      title="编程助手"
+      subtitle="AI 驱动的代码辅助工具"
+      color="green"
+      tools={[
+        { id: 'ollama', name: 'Ollama', description: '本地大模型运行时，支持 100+ 开源模型', status: 'available', icon: Bot, url: 'https://ollama.com', size: '~150 MB' },
+        { id: 'tabby', name: 'Tabby', description: '自托管 GitHub Copilot 替代方案', status: 'available', icon: GitBranch, url: 'https://tabbyml.github.io/tabby/', size: '~500 MB' },
+        { id: 'code-llama', name: 'CodeLlama', description: 'Meta 代码生成模型 (需 Ollama)', status: 'available', icon: Code, route: '/ai-chat' },
+        { id: 'deepseek-coder', name: 'DeepSeek Coder', description: '专业代码生成模型 (需 Ollama)', status: 'coming', icon: Terminal },
+      ]}
+    />
   )
 }
