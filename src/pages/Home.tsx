@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { useNavigate } from 'react-router-dom'
 import {
   Cpu, MessageSquare, Music, Video, Code, Palette,
-  HardDrive, Settings, ArrowRight, Download, RefreshCw, Zap
+  HardDrive, Settings, ArrowRight, RefreshCw, Zap
 } from 'lucide-react'
 
 interface NPUStatus {
