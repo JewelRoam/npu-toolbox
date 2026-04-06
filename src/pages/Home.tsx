@@ -38,7 +38,7 @@ const toolCategories = [
   {
     title: '🎵 音频工具',
     description: '音乐生成、音效合成、语音合成',
-    route: '/audio-tools',
+    route: '/audio',
     tools: [
       { id: 'musicgen', name: '音乐生成', description: 'AI 音乐创作', icon: Music },
       { id: 'tts', name: '语音合成', description: '本地 TTS', icon: Music },
@@ -47,7 +47,7 @@ const toolCategories = [
   {
     title: '📹 视频工具',
     description: '背景移除、画质增强、实时特效',
-    route: '/video-tools',
+    route: '/video',
     tools: [
       { id: 'bg-remove', name: '背景移除', description: '实时抠像', icon: Video },
       { id: 'video-enhance', name: '画质增强', description: '视频超分', icon: Video },
@@ -65,7 +65,7 @@ const toolCategories = [
   {
     title: '🎨 创意工具',
     description: '文生图、图生图、图片编辑',
-    route: '/creative-tools',
+    route: '/creative',
     tools: [
       { id: 'stable-diffusion', name: '图片生成', description: '本地扩散模型', icon: Palette },
       { id: 'image-edit', name: '图片编辑', description: 'AI 图片编辑', icon: Palette },
@@ -83,7 +83,7 @@ const toolCategories = [
   {
     title: '🛠️ 系统工具',
     description: '磁盘检测、电池健康、屏幕测试',
-    route: '/system-tools',
+    route: '/system',
     tools: [
       { id: 'disk-check', name: '磁盘检测', description: 'SMART 状态', icon: HardDrive },
       { id: 'battery', name: '电池健康', description: '电池检测', icon: HardDrive },
