@@ -28,6 +28,7 @@ fn main() {
             commands::get_npu_status,
             commands::detect_npu,
             commands::get_system_info,
+            commands::get_battery_info,
             commands::get_storage_info,
             // Tool management
             commands::get_tools_list,

@@ -820,6 +820,114 @@ pub async fn load_settings() -> Result<String, String> {
     Ok(content)
 }
 
+// ============ Battery Info ============
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BatteryInfo {
+    pub present: bool,
+    pub name: String,
+    pub status: String,       // Charging / Discharging / AC Power
+    pub estimated_charge: u32, // percent 0-100
+    pub design_capacity: String,
+    pub full_charge_capacity: String,
+    pub health_percent: f32,
+    pub cycle_count: Option<u32>,
+}
+
+#[tauri::command]
+pub async fn get_battery_info() -> Result<BatteryInfo, String> {
+    let script = r#"
+        $battery = Get-CimInstance -ClassName Win32_Battery -ErrorAction Stop
+        if (-not $battery) {
+            Write-Output "PRESENT=0"
+            exit 0
+        }
+        Write-Output "PRESENT=1"
+        Write-Output "NAME=$($battery.Name)"
+        $status = switch ($battery.BatteryStatus) {
+            1 { 'Discharging' }
+            2 { 'AC Power' }
+            3 { 'Fully Charged' }
+            4 { 'Low' }
+            5 { 'Critical' }
+            6 { 'Charging' }
+            7 { 'Charging and High' }
+            8 { 'Charging and Low' }
+            9 { 'Charging and Critical' }
+            10 { 'Undefined' }
+            11 { 'Partially Charged' }
+            default { 'Unknown' }
+        }
+        Write-Output "STATUS=$status"
+        Write-Output "CHARGE=$($battery.EstimatedChargeRemaining)"
+        $designMWh = $battery.DesignCapacity
+        $fullMWh = $battery.FullChargeCapacity
+        if ($designMWh -and $fullMWh -and $designMWh -gt 0) {
+            Write-Output "DESIGN=$([math]::Round($designMWh / 1000, 1)) Wh"
+            Write-Output "FULLCHARGE=$([math]::Round($fullMWh / 1000, 1)) Wh"
+            Write-Output "HEALTH=$([math]::Round($fullMWh / $designMWh * 100, 1))"
+        } else {
+            Write-Output "DESIGN=N/A"
+            Write-Output "FULLCHARGE=N/A"
+            Write-Output "HEALTH=0"
+        }
+        # Cycle count via WMI (not all laptops report it)
+        try {
+            $battStat = Get-CimInstance -Namespace "root\wmi" -ClassName BatteryFullChargedCapacity -ErrorAction Stop
+            Write-Output "CYCLE=N/A"
+        } catch {
+            Write-Output "CYCLE=N/A"
+        }
+    "#;
+
+    match ps::run(script) {
+        Ok(output) => {
+            let mut info = BatteryInfo {
+                present: false,
+                name: String::new(),
+                status: String::new(),
+                estimated_charge: 0,
+                design_capacity: String::new(),
+                full_charge_capacity: String::new(),
+                health_percent: 0.0,
+                cycle_count: None,
+            };
+
+            for line in output.lines() {
+                if let Some(v) = line.strip_prefix("PRESENT=") {
+                    info.present = v.trim() == "1";
+                } else if let Some(v) = line.strip_prefix("NAME=") {
+                    info.name = v.to_string();
+                } else if let Some(v) = line.strip_prefix("STATUS=") {
+                    info.status = v.to_string();
+                } else if let Some(v) = line.strip_prefix("CHARGE=") {
+                    info.estimated_charge = v.trim().parse().unwrap_or(0);
+                } else if let Some(v) = line.strip_prefix("DESIGN=") {
+                    info.design_capacity = v.to_string();
+                } else if let Some(v) = line.strip_prefix("FULLCHARGE=") {
+                    info.full_charge_capacity = v.to_string();
+                } else if let Some(v) = line.strip_prefix("HEALTH=") {
+                    info.health_percent = v.trim().parse().unwrap_or(0.0);
+                } else if let Some(v) = line.strip_prefix("CYCLE=") {
+                    info.cycle_count = v.trim().parse().ok();
+                }
+            }
+
+            Ok(info)
+        }
+        Err(_) => Ok(BatteryInfo {
+            present: false,
+            name: String::new(),
+            status: String::new(),
+            estimated_charge: 0,
+            design_capacity: String::new(),
+            full_charge_capacity: String::new(),
+            health_percent: 0.0,
+            cycle_count: None,
+        }),
+    }
+}
+
 // ============ Ollama Proxy Commands ============
 
 const OLLAMA_BASE: &str = "http://127.0.0.1:11434";
