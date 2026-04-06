@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant};
 use log::{info, warn};
 use tauri::Emitter;
 
@@ -437,26 +438,50 @@ async fn get_storage_list() -> Result<Vec<StorageInfo>, String> {
     }
 }
 
-// ============ Command Implementations ============
+// ============ Hardware Info Cache ============
 
-#[tauri::command]
-pub async fn get_hardware_info() -> Result<HardwareInfo, String> {
-    info!("Getting complete hardware info");
-    
-    // Get each component with error handling
+struct HwCache {
+    result: HardwareInfo,
+    captured_at: Instant,
+}
+
+static HW_CACHE: LazyLock<Mutex<Option<HwCache>>> = LazyLock::new(|| Mutex::new(None));
+const HW_CACHE_TTL: Duration = Duration::from_secs(3);
+
+/// Build fresh hardware info (no cache).
+async fn build_hardware_info() -> Result<HardwareInfo, String> {
+    info!("Building fresh hardware info...");
     let cpu = get_cpu_info().await.map_err(|e| format!("CPU: {}", e))?;
     let gpu = get_gpu_info().await.map_err(|e| format!("GPU: {}", e))?;
     let memory = get_memory_info().await.map_err(|e| format!("Memory: {}", e))?;
     let storage = get_storage_list().await.map_err(|e| format!("Storage: {}", e))?;
     let npu = NPUDetector::detect_npu();
-    
-    Ok(HardwareInfo {
-        cpu,
-        gpu,
-        memory,
-        npu,
-        storage,
-    })
+    Ok(HardwareInfo { cpu, gpu, memory, npu, storage })
+}
+
+// ============ Command Implementations ============
+
+#[tauri::command]
+pub async fn get_hardware_info() -> Result<HardwareInfo, String> {
+    // Serve from cache if fresh
+    if let Ok(cache) = HW_CACHE.lock() {
+        if let Some(ref c) = *cache {
+            if c.captured_at.elapsed() < HW_CACHE_TTL {
+                info!("Returning cached hardware info (age {}ms)", c.captured_at.elapsed().as_millis());
+                return Ok(c.result.clone());
+            }
+        }
+    }
+
+    let result = build_hardware_info().await;
+
+    if let Ok(ref info) = result {
+        if let Ok(mut cache) = HW_CACHE.lock() {
+            *cache = Some(HwCache { result: info.clone(), captured_at: Instant::now() });
+        }
+    }
+
+    result
 }
 
 #[tauri::command]

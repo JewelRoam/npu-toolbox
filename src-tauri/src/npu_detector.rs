@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use log::{info, warn};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use crate::ps;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -13,6 +15,15 @@ pub struct NPUStatus {
     pub status: String,
     pub recommendations: Vec<String>,
 }
+
+/// Cache: avoid re-running 5 PowerShell scripts within the TTL window.
+struct NpuCache {
+    result: NPUStatus,
+    captured_at: Instant,
+}
+
+static NPU_CACHE: Mutex<Option<NpuCache>> = Mutex::new(None);
+const NPU_CACHE_TTL: Duration = Duration::from_secs(30);
 
 pub struct NPUDetector;
 
@@ -397,36 +408,71 @@ impl NPUDetector {
         Ok(None)
     }
 
-    /// Main NPU detection function that tries all methods
+    /// Main NPU detection with lazy short-circuit evaluation and TTL cache.
     pub fn detect_npu() -> NPUStatus {
-        info!("Starting comprehensive NPU detection...");
-
-        // Try each detection method in order
-        let detection_methods = [
-            ("CIM", Self::detect_via_cim()),
-            ("CPU", Self::detect_via_cpu()),
-            ("Registry", Self::detect_via_registry()),
-            ("Driver Files", Self::detect_via_driver_files()),
-            ("Device ID", Self::detect_via_device_id()),
-        ];
-
-        for (method_name, result) in detection_methods {
-            match result {
-                Ok(Some(npu_status)) => {
-                    info!("NPU detected using {} method", method_name);
-                    return npu_status;
-                }
-                Ok(None) => {
-                    info!("{} method found no NPU", method_name);
-                }
-                Err(e) => {
-                    warn!("{} method failed: {}", method_name, e);
+        // Return cached result if still fresh
+        if let Ok(cache) = NPU_CACHE.lock() {
+            if let Some(ref c) = *cache {
+                if c.captured_at.elapsed() < NPU_CACHE_TTL {
+                    info!("Returning cached NPU status (age {}ms)", c.captured_at.elapsed().as_millis());
+                    return c.result.clone();
                 }
             }
         }
 
-        // No NPU detected
-        info!("No NPU detected on this system after comprehensive search");
+        info!("Starting NPU detection (lazy short-circuit)...");
+
+        let result = Self::detect_fresh();
+
+        // Store in cache (ignore lock errors)
+        if let Ok(mut cache) = NPU_CACHE.lock() {
+            *cache = Some(NpuCache {
+                result: result.clone(),
+                captured_at: Instant::now(),
+            });
+        }
+
+        result
+    }
+
+    /// Actually run detection methods lazily — stops at first positive match.
+    fn detect_fresh() -> NPUStatus {
+        // Method 1: CIM (most reliable)
+        match Self::detect_via_cim() {
+            Ok(Some(s)) => { info!("NPU found via CIM"); return s; }
+            Ok(None) => info!("CIM: no NPU"),
+            Err(e) => warn!("CIM failed: {}", e),
+        }
+
+        // Method 2: CPU model inference
+        match Self::detect_via_cpu() {
+            Ok(Some(s)) => { info!("NPU found via CPU model"); return s; }
+            Ok(None) => info!("CPU model: no NPU"),
+            Err(e) => warn!("CPU model check failed: {}", e),
+        }
+
+        // Method 3: Device ID (specific, fast)
+        match Self::detect_via_device_id() {
+            Ok(Some(s)) => { info!("NPU found via device ID"); return s; }
+            Ok(None) => info!("Device ID: no NPU"),
+            Err(e) => warn!("Device ID check failed: {}", e),
+        }
+
+        // Method 4: Registry (slower, broader)
+        match Self::detect_via_registry() {
+            Ok(Some(s)) => { info!("NPU found via registry"); return s; }
+            Ok(None) => info!("Registry: no NPU"),
+            Err(e) => warn!("Registry check failed: {}", e),
+        }
+
+        // Method 5: Driver files (slowest, least reliable)
+        match Self::detect_via_driver_files() {
+            Ok(Some(s)) => { info!("NPU found via driver files"); return s; }
+            Ok(None) => info!("Driver files: no NPU"),
+            Err(e) => warn!("Driver file check failed: {}", e),
+        }
+
+        info!("No NPU detected after short-circuit search");
         NPUStatus {
             has_npu: false,
             vendor: String::new(),
@@ -441,6 +487,20 @@ impl NPUDetector {
                 "Consider checking for BIOS updates or driver installations".to_string(),
             ],
         }
+    }
+
+    /// Force a fresh detection, bypassing the cache.
+    #[allow(dead_code)]
+    pub fn detect_npu_fresh() -> NPUStatus {
+        info!("Forcing fresh NPU detection (cache bypass)");
+        let result = Self::detect_fresh();
+        if let Ok(mut cache) = NPU_CACHE.lock() {
+            *cache = Some(NpuCache {
+                result: result.clone(),
+                captured_at: Instant::now(),
+            });
+        }
+        result
     }
 }
 
