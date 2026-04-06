@@ -19,13 +19,15 @@
 ## ✨ 特性
 
 ### 🎯 核心功能
-- **🔍 硬件检测** - 自动检测 NPU/CPU/GPU/内存/存储，五重 NPU 探测算法
-- **🤖 AI 对话** - 本地大模型推理，隐私安全不联网
-- **🎵 音频工具** - 音乐生成、音效合成、TTS 语音合成
-- **📹 视频工具** - 背景移除、画质增强、实时特效
-- **💻 编程助手** - 代码补全、代码解释、单元测试生成
-- **🎨 创意工具** - 文生图、图生图、AI 图片编辑
-- **🛠️ 系统工具** - 磁盘检测、电池健康、屏幕测试
+- **🔍 硬件检测** - 自动检测 NPU/CPU/GPU/内存/存储，五重 NPU 探测算法，实时监控
+- **🤖 AI 对话** - Ollama 本地大模型流式对话，支持停止生成、复制消息
+- **🔧 OpenVINO** - 推理引擎检测、环境诊断、设备选择、推理延迟测试
+- **🎵 音频工具** - 音乐生成、音效合成、TTS 语音合成（规划中）
+- **📹 视频工具** - 背景移除、画质增强、实时特效（规划中）
+- **💻 编程助手** - Ollama / Tabby / CodeLlama 快捷入口
+- **🎨 创意工具** - 文生图、图生图、AI 图片编辑（规划中）
+- **🛠️ 系统工具** - 缓存清理、磁盘检测、电池健康（规划中）
+- **🌙 深色模式** - 全页面深色主题支持
 
 ### 🔍 NPU 检测能力
 采用五重探测算法，最大化检测准确率：
@@ -152,19 +154,31 @@ npm run tauri build
 ```
 npu-toolbox/
 ├── src/                          # 前端源码
-│   ├── components/               # 可复用组件（Layout, Sidebar, Header）
-│   ├── pages/                    # 页面组件（Home, HardwareInfo, AIChat 等）
-│   ├── stores/                   # Zustand 状态管理（appStore）
-│   ├── types/                    # TypeScript 类型定义
+│   ├── components/               # 可复用组件
+│   │   ├── Layout.tsx            #   布局容器（侧边栏 + 内容区）
+│   │   ├── Sidebar.tsx           #   导航侧边栏
+│   │   ├── Header.tsx            #   顶部状态栏（温度颜色编码）
+│   │   └── ToolGrid.tsx          #   通用工具卡片网格（5色/4状态）
+│   ├── pages/                    # 页面组件
+│   │   ├── Home.tsx              #   首页（NPU状态 + 使用率进度条）
+│   │   ├── HardwareInfo.tsx      #   硬件检测（实时刷新 + 温度监控）
+│   │   ├── AIChat.tsx            #   AI 对话（Ollama 流式 + 停止/复制）
+│   │   ├── OpenVINO.tsx          #   OpenVINO 管理（检测/测试/推荐模型）
+│   │   ├── Settings.tsx          #   设置（主题/路径/缓存管理）
+│   │   └── ...                   #   音频/视频/编程/创意/系统工具页
+│   ├── stores/appStore.ts        # Zustand 状态管理
+│   ├── utils/tempColor.ts        # 温度→颜色映射工具函数
+│   ├── types/index.ts            # TypeScript 类型定义
 │   ├── App.tsx                   # 根组件 + 路由配置
 │   └── main.tsx                  # 入口文件
 ├── src-tauri/                    # Rust 后端
 │   ├── src/
 │   │   ├── main.rs               # 应用入口 + 命令注册
-│   │   ├── commands.rs           # Tauri 命令实现（硬件信息、工具管理等）
-│   │   └── npu_detector.rs       # NPU 检测模块（五重探测算法）
-│   ├── capabilities/             # Tauri v2 权限配置
-│   │   └── default.json          # 默认窗口权限（core:default, shell:allow-open）
+│   │   ├── commands.rs           # 硬件信息/工具管理/Ollama代理/设置
+│   │   ├── npu_detector.rs       # NPU 五重探测算法
+│   │   ├── openvino.rs           # OpenVINO 检测/推理测试（含单元测试）
+│   │   └── ps.rs                 # PowerShell 执行模块（共享基础设施）
+│   ├── capabilities/default.json # Tauri v2 权限配置
 │   ├── tauri.conf.json           # Tauri 应用配置
 │   └── Cargo.toml                # Rust 依赖
 ├── docs/                         # 项目文档
