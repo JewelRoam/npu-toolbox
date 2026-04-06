@@ -89,6 +89,66 @@ fn run_powershell(script: &str) -> Result<String, String> {
     Ok(stdout)
 }
 
+/// Get CPU temperature via WMI, returns None if unavailable
+fn get_cpu_temperature() -> f32 {
+    // Method 1: MSAcpi_ThermalZoneTemperature (most common, may need admin)
+    let script = r#"
+        try {
+            $temps = Get-CimInstance -Namespace "root/wmi" -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction Stop
+            if ($temps) {
+                # Temperature is in tenths of Kelvin, convert to Celsius
+                $maxTemp = ($temps | ForEach-Object { ($_.CurrentTemperature - 2732) / 10 } | Measure-Object -Maximum).Maximum
+                if ($maxTemp -and $maxTemp -gt 0) {
+                    Write-Output "TEMP=$([math]::Round($maxTemp, 1))"
+                    exit 0
+                }
+            }
+        } catch {}
+
+        # Method 2: Try Win32_PerfFormattedData_Counters_ThermalZoneInformation
+        try {
+            $thermal = Get-CimInstance -ClassName Win32_PerfFormattedData_Counters_ThermalZoneInformation -ErrorAction Stop
+            if ($thermal) {
+                $maxTemp = ($thermal | ForEach-Object { $_.Temperature } | Measure-Object -Maximum).Maximum
+                if ($maxTemp -and $maxTemp -gt 0) {
+                    Write-Output "TEMP=$([math]::Round($maxTemp, 1))"
+                    exit 0
+                }
+            }
+        } catch {}
+
+        # Method 3: Try OpenHardwareMonitor-style registry keys
+        try {
+            $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\thermalcomfort\ThermalZones"
+            if (Test-Path $regPath) {
+                $zones = Get-ChildItem -Path $regPath -ErrorAction Stop
+                foreach ($zone in $zones) {
+                    $tempVal = (Get-ItemProperty -Path $zone.PSPath -Name "Temperature" -ErrorAction SilentlyContinue).Temperature
+                    if ($tempVal -and $tempVal -gt 0) {
+                        Write-Output "TEMP=$([math]::Round($tempVal / 10, 1))"
+                        exit 0
+                    }
+                }
+            }
+        } catch {}
+
+        Write-Output "TEMP=-1"
+    "#;
+
+    if let Ok(output) = run_powershell(script) {
+        for line in output.lines() {
+            if line.starts_with("TEMP=") {
+                if let Ok(temp) = line[5..].trim().parse::<f32>() {
+                    if temp > 0.0 {
+                        return temp;
+                    }
+                }
+            }
+        }
+    }
+    -1.0 // Indicate temperature unavailable
+}
+
 /// Get real CPU information
 async fn get_cpu_info() -> Result<CPUInfo, String> {
     info!("Getting CPU info...");
@@ -107,9 +167,6 @@ async fn get_cpu_info() -> Result<CPUInfo, String> {
             # Get current usage
             $usage = (Get-CimInstance -ClassName Win32_Processor).LoadPercentage
             if (-not $usage) { $usage = 0 }
-            
-            # Try to get temperature (requires admin or specific tools)
-            $temp = $null
             
             # Output as structured text
             Write-Output "NAME=$name"
@@ -154,12 +211,14 @@ async fn get_cpu_info() -> Result<CPUInfo, String> {
                 return Err("Failed to get CPU info".to_string());
             }
             
+            let temperature = get_cpu_temperature();
+            
             Ok(CPUInfo {
                 name,
                 cores,
                 threads,
                 frequency,
-                temperature: 0.0, // Temperature requires special drivers/tools
+                temperature,
                 usage,
             })
         }
@@ -589,6 +648,32 @@ fn clean_dir(path: &std::path::Path) -> u64 {
     
     std::fs::remove_dir(path).ok();
     cleaned
+}
+
+/// Calculate directory size in bytes
+fn get_dir_size(path: &std::path::Path) -> u64 {
+    if !path.exists() {
+        return 0;
+    }
+    let mut size: u64 = 0;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            if let Ok(metadata) = entry.metadata() {
+                if metadata.is_file() {
+                    size += metadata.len();
+                } else if metadata.is_dir() {
+                    size += get_dir_size(&entry.path());
+                }
+            }
+        }
+    }
+    size
+}
+
+#[tauri::command]
+pub async fn get_cache_size(cache_path: String) -> Result<u64, String> {
+    let size = get_dir_size(std::path::Path::new(&cache_path));
+    Ok(size)
 }
 
 /// Save settings to file

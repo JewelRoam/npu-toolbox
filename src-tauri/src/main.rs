@@ -17,6 +17,8 @@ fn main() {
     
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             // Hardware info
             commands::get_hardware_info,
@@ -30,6 +32,7 @@ fn main() {
             commands::launch_tool,
             // Cache management
             commands::cleanup_cache,
+            commands::get_cache_size,
             // Settings management
             commands::save_settings,
             commands::load_settings,

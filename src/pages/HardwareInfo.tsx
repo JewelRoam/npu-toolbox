@@ -195,7 +195,12 @@ export function HardwareInfo() {
           </div>
           <div>
             <p className="text-sm text-gray-500">温度</p>
-            <p className="font-medium">{hardware.cpu.temperature}°C</p>
+            <p className="font-medium">
+              {hardware.cpu.temperature > 0
+                ? `${hardware.cpu.temperature}°C`
+                : <span className="text-gray-400">不可用 <span className="text-xs">(需管理员权限)</span></span>
+              }
+            </p>
           </div>
           <div className="col-span-2">
             <p className="text-sm text-gray-500 mb-1">使用率</p>
@@ -273,14 +278,20 @@ export function HardwareInfo() {
                   <p className="font-medium">{disk.name}</p>
                   <p className="text-sm text-gray-500">{disk.size} {disk.storage_type}</p>
                 </div>
-                <span className={`px-2 py-1 rounded-full text-xs ${disk.health > 90 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                  健康度 {disk.health}%
-                </span>
+                {disk.health > 0 && disk.health < 100 && (
+                  <span className={`px-2 py-1 rounded-full text-xs ${disk.health > 90 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                    健康度 {disk.health}%
+                  </span>
+                )}
               </div>
-              <div className="flex items-center gap-2 text-sm text-gray-500">
-                <Thermometer className="w-4 h-4" />
-                <span>{disk.temp}°C</span>
-              </div>
+              {disk.temp > 0 ? (
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <Thermometer className="w-4 h-4" />
+                  <span>{disk.temp}°C</span>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400">SMART 数据需要管理员权限读取</p>
+              )}
             </div>
           ))}
         </div>
