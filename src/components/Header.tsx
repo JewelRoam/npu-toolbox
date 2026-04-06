@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { RefreshCw, Cpu, MemoryStick } from 'lucide-react'
+import { tempColor } from '../utils/tempColor'
 
 interface HardwareInfo {
   cpu: {
@@ -51,14 +52,8 @@ export function Header() {
     fetchHardwareInfo()
   }, [])
 
-  const cpuTemp = hardwareInfo?.cpu.temperature
-  const cpuTempDisplay = cpuTemp && cpuTemp > 0 ? `${cpuTemp}°C` : '--'
-  const cpuTempClass = !cpuTemp || cpuTemp <= 0
-    ? 'text-gray-400 dark:text-gray-500'
-    : cpuTemp < 45 ? 'text-blue-500'
-    : cpuTemp < 65 ? 'text-green-500'
-    : cpuTemp < 80 ? 'text-amber-500'
-    : 'text-red-500'
+  const cpuTemp = hardwareInfo?.cpu.temperature ?? 0
+  const cpuTempDisplay = cpuTemp > 0 ? `${cpuTemp}°C` : '--'
 
   return (
     <header className="h-16 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-6">
@@ -78,7 +73,7 @@ export function Header() {
         <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
           <span>{hardwareInfo?.cpu.name || 'CPU'}</span>
           <span className="text-gray-400 dark:text-gray-600">|</span>
-          <span className={cpuTempClass}>{cpuTempDisplay}</span>
+          <span className={tempColor(cpuTemp)}>{cpuTempDisplay}</span>
         </div>
 
         {/* Memory status */}

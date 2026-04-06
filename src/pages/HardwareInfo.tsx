@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { Cpu, HardDrive, MemoryStick, Monitor, Thermometer, RefreshCw, Pause, Play } from 'lucide-react'
+import { tempColor } from '../utils/tempColor'
 
 interface HardwareInfo {
   cpu: { name: string; cores: number; threads: number; frequency: string; temperature: number; usage: number }
@@ -11,15 +12,6 @@ interface HardwareInfo {
 }
 
 const REFRESH_INTERVAL_MS = 5000
-
-/** Temperature color classes based on Celsius value */
-function tempColor(temp: number): string {
-  if (temp <= 0) return 'text-gray-400 dark:text-gray-500'
-  if (temp < 45) return 'text-blue-500'
-  if (temp < 65) return 'text-green-500'
-  if (temp < 80) return 'text-amber-500'
-  return 'text-red-500'
-}
 
 export function HardwareInfo() {
   const [hardware, setHardware] = useState<HardwareInfo | null>(null)
