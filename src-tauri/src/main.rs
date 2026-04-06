@@ -1,16 +1,19 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod npu_detector;
 
 use log::info;
 use tauri::Manager;
 
 fn main() {
-    // Initialize logger
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+    // Initialize logger with debug level
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug"))
+        .format_timestamp_millis()
         .init();
     
     info!("NPU Toolbox starting...");
+    info!("Current working directory: {:?}", std::env::current_dir());
     
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())

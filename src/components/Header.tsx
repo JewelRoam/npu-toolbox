@@ -22,13 +22,13 @@ interface HardwareInfo {
     usage: number
   }
   npu: {
-    hasNpu: boolean
+    has_npu: boolean
     vendor: string
     model: string
-    computeUnits: number
+    compute_units: number
     tops: number
-    driverVersion: string
-    status: 'available' | 'unavailable' | 'working'
+    driver_version: string
+    status: string
   }
 }
 
@@ -43,13 +43,8 @@ export function Header() {
       setHardwareInfo(info)
     } catch (error) {
       console.error('获取硬件信息失败:', error)
-      // 使用模拟数据（开发模式）
-      setHardwareInfo({
-        cpu: { name: 'Intel Core i7-12700K', cores: 12, threads: 20, frequency: '4.9 GHz', temperature: 45 },
-        gpu: { name: 'Intel Arc A770', vram: '16GB', driver: '31.0.101.5445' },
-        memory: { total: '32GB DDR5', used: '16GB', usage: 50 },
-        npu: { hasNpu: true, vendor: 'Intel', model: 'Intel AI Boost', computeUnits: 13, tops: 40, driverVersion: '101.3792', status: 'available' }
-      })
+      // 不使用虚拟数据，保持错误状态
+      setHardwareInfo(null)
     }
     setLoading(false)
   }
@@ -62,11 +57,11 @@ export function Header() {
     <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
       {/* 硬件状态显示 */}
       <div className="flex items-center gap-6">
-        {/* NPU 状态 */}
+      {/* NPU 状态 */}
         <div className="flex items-center gap-2">
-          <Cpu className={`w-5 h-5 ${hardwareInfo?.npu.hasNpu ? 'text-npu-available' : 'text-gray-400'}`} />
+          <Cpu className={`w-5 h-5 ${hardwareInfo?.npu.has_npu ? 'text-npu-available' : 'text-gray-400'}`} />
           <span className="text-sm font-medium">
-            {hardwareInfo?.npu.hasNpu 
+            {hardwareInfo?.npu.has_npu 
               ? `NPU: ${hardwareInfo.npu.vendor} ${hardwareInfo.npu.model} (${hardwareInfo.npu.tops} TOPS)`
               : 'NPU: 未检测到'
             }

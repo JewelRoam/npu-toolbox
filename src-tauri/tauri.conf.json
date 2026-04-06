@@ -6,6 +6,23 @@
     "frontendDist": "../dist"
   },
   "productName": "NPU工具箱",
-  "identifier": "com.nputoolbox.app",
-  "version": "1.0.0"
+  "identifier": "com.nputoolbox.desktop",
+  "version": "1.0.0",
+  "app": {
+    "windows": [
+      {
+        "title": "NPU工具箱",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true,
+        "resizable": true,
+        "decorations": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  }
 }

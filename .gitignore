@@ -147,6 +147,10 @@ public
 ehthumbs.db
 Thumbs.db
 
+# Test binaries
+*.exe
+*.pdb
+
 # Tauri
 # Keep the icons directory
 # src-tauri/icons/ should be tracked if it's custom icons

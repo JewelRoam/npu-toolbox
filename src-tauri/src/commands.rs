@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::process::Command;
 use log::{info, warn};
 
+// Import NPU detector from crate root (declared in main.rs)
+use crate::npu_detector::{NPUDetector, NPUStatus};
+
 // ============ Data Structures ============
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -28,18 +31,6 @@ pub struct MemoryInfo {
     pub used: String,
     pub usage: f32,
     pub slots: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct NPUStatus {
-    pub has_npu: bool,
-    pub vendor: String,
-    pub model: String,
-    pub compute_units: u32,
-    pub tops: f32,
-    pub driver_version: String,
-    pub status: String,
-    pub recommendations: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -370,153 +361,6 @@ async fn get_storage_list() -> Result<Vec<StorageInfo>, String> {
 }
 
 /// Detect NPU using multiple methods
-async fn detect_npu_internal() -> NPUStatus {
-    info!("Detecting NPU...");
-    
-    // Method 1: Check for Intel AI Boost via Device Manager
-    let intel_script = r#"
-        try {
-            # Check for Intel AI Boost NPU
-            $devices = Get-PnpDevice | Where-Object { 
-                $_.FriendlyName -like '*AI*' -or 
-                $_.FriendlyName -like '*NPU*' -or
-                $_.FriendlyName -like '*Neural*' -or
-                $_.FriendlyName -like '*Intel*Boost*'
-            }
-            
-            if ($devices) {
-                foreach ($d in $devices) {
-                    Write-Output "DEVICE=$($d.FriendlyName)"
-                    Write-Output "STATUS=$($d.Status)"
-                }
-            }
-            
-            # Also check WMI for Intel NPU
-            $pnpEntities = Get-CimInstance -ClassName Win32_PnPEntity | Where-Object {
-                $_.Name -like '*AI*' -or 
-                $_.Name -like '*NPU*' -or
-                $_.Name -like '*Neural*'
-            }
-            
-            if ($pnpEntities) {
-                foreach ($p in $pnpEntities) {
-                    Write-Output "PNP_NAME=$($p.Name)"
-                }
-            }
-        } catch {
-            Write-Output "ERROR=$($_.Exception.Message)"
-        }
-    "#;
-    
-    let mut has_npu = false;
-    let mut npu_name = String::new();
-    let mut vendor = String::new();
-    
-    match run_powershell(intel_script) {
-        Ok(output) => {
-            info!("NPU detection output: {}", output);
-            
-            for line in output.lines() {
-                if line.starts_with("DEVICE=") || line.starts_with("PNP_NAME=") {
-                    let name = if line.starts_with("DEVICE=") {
-                        &line[7..]
-                    } else {
-                        &line[9..]
-                    };
-                    
-                    let name_lower = name.to_lowercase();
-                    
-                    if name_lower.contains("intel") || name_lower.contains("ai boost") {
-                        has_npu = true;
-                        vendor = "Intel".to_string();
-                        npu_name = name.to_string();
-                    } else if name_lower.contains("amd") || name_lower.contains("ryzen ai") || name_lower.contains("xdna") {
-                        has_npu = true;
-                        vendor = "AMD".to_string();
-                        npu_name = name.to_string();
-                    } else if name_lower.contains("npu") || name_lower.contains("neural") {
-                        has_npu = true;
-                        npu_name = name.to_string();
-                    }
-                }
-            }
-        }
-        Err(e) => {
-            warn!("NPU detection PowerShell error: {}", e);
-        }
-    }
-    
-    // Method 2: Check for NPU via registry (Intel specific)
-    if !has_npu {
-        let registry_script = r#"
-            try {
-                # Check Intel NPU driver
-                $intelNpu = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e97b-e325-11ce-bfc1-08002be10318}\*" -ErrorAction SilentlyContinue | Where-Object {
-                    $_.DriverDesc -like '*AI*' -or $_.DriverDesc -like '*NPU*' -or $_.DriverDesc -like '*Neural*'
-                }
-                
-                if ($intelNpu) {
-                    Write-Output "REGISTRY_FOUND=$($intelNpu.DriverDesc)"
-                }
-            } catch {
-                # Ignore registry errors
-            }
-        "#;
-        
-        match run_powershell(registry_script) {
-            Ok(output) => {
-                if output.contains("REGISTRY_FOUND=") {
-                    for line in output.lines() {
-                        if line.starts_with("REGISTRY_FOUND=") {
-                            has_npu = true;
-                            npu_name = line[15..].to_string();
-                            vendor = if npu_name.to_lowercase().contains("intel") { "Intel".to_string() } else { "Unknown".to_string() };
-                        }
-                    }
-                }
-            }
-            Err(_) => {}
-        }
-    }
-    
-    if has_npu {
-        let model = if npu_name.is_empty() {
-            "NPU".to_string()
-        } else {
-            npu_name
-        };
-        
-        let tops = if vendor == "Intel" { 40.0 } else { 45.0 };
-        
-        NPUStatus {
-            has_npu: true,
-            vendor,
-            model,
-            compute_units: 0, // Requires specific driver API
-            tops,
-            driver_version: "Installed".to_string(),
-            status: "available".to_string(),
-            recommendations: vec![
-                "NPU detected and available".to_string(),
-                "Can use NPU-accelerated AI features".to_string(),
-            ],
-        }
-    } else {
-        NPUStatus {
-            has_npu: false,
-            vendor: String::new(),
-            model: String::new(),
-            compute_units: 0,
-            tops: 0.0,
-            driver_version: String::new(),
-            status: "not_detected".to_string(),
-            recommendations: vec![
-                "No NPU detected on this system".to_string(),
-                "AI features will use CPU/GPU acceleration".to_string(),
-            ],
-        }
-    }
-}
 
 // ============ Command Implementations ============
 
@@ -529,7 +373,7 @@ pub async fn get_hardware_info() -> Result<HardwareInfo, String> {
     let gpu = get_gpu_info().await.map_err(|e| format!("GPU: {}", e))?;
     let memory = get_memory_info().await.map_err(|e| format!("Memory: {}", e))?;
     let storage = get_storage_list().await.map_err(|e| format!("Storage: {}", e))?;
-    let npu = detect_npu_internal().await;
+    let npu = NPUDetector::detect_npu();
     
     Ok(HardwareInfo {
         cpu,
@@ -542,12 +386,12 @@ pub async fn get_hardware_info() -> Result<HardwareInfo, String> {
 
 #[tauri::command]
 pub async fn get_npu_status() -> Result<NPUStatus, String> {
-    Ok(detect_npu_internal().await)
+    Ok(NPUDetector::detect_npu())
 }
 
 #[tauri::command]
 pub async fn detect_npu() -> Result<NPUStatus, String> {
-    Ok(detect_npu_internal().await)
+    Ok(NPUDetector::detect_npu())
 }
 
 #[tauri::command]

@@ -1,65 +1,65 @@
-// 硬件信息类型定义
+// Hardware info types matching backend Rust structs (snake_case)
 
 export interface CPUInfo {
   name: string
   cores: number
   threads: number
-  baseClock: number
-  maxClock: number
-  socket: string
-  temperature?: number
+  frequency: string
+  temperature: number
+  usage: number
 }
 
 export interface GPUInfo {
   name: string
-  vram: number // MB
+  vram: string
   driver: string
-  temperature?: number
+  usage: number
 }
 
 export interface MemoryInfo {
-  total: number // GB
-  used: number // GB
-  type: string
-  speed: number
-  slots: number
+  total: string
+  used: string
+  usage: number
+  slots: string
+}
+
+export interface NPUInfo {
+  has_npu: boolean
+  vendor: string
+  model: string
+  compute_units: number
+  tops: number
+  driver_version: string
+  status: string
+  recommendations: string[]
 }
 
 export interface StorageInfo {
   name: string
-  total: number // GB
-  used: number // GB
-  type: 'SSD' | 'HDD'
-  health?: number // percentage
-}
-
-export interface NPUInfo {
-  hasNPU: boolean
-  vendor: 'Intel' | 'AMD' | 'Qualcomm' | null
-  model: string
-  driverVersion: string
-  computeUnits: number
-  tops: number
-  recommendations: string[]
+  size: string
+  health: number
+  temp: number
+  storage_type: string
 }
 
 export interface HardwareInfo {
   cpu: CPUInfo
-  gpu: GPUInfo[]
+  gpu: GPUInfo
   memory: MemoryInfo
-  storages: StorageInfo[]
+  npu: NPUInfo
+  storage: StorageInfo[]
 }
 
 export interface ToolInfo {
   id: string
   name: string
   description: string
-  category: 'ai' | 'hardware' | 'system' | 'creative'
+  category: 'ai' | 'hardware' | 'system' | 'creative' | 'audio' | 'programming'
   icon: string
   executable?: string
   downloadUrl?: string
   version?: string
-  size?: number // MB
+  size?: number
   isDownloaded: boolean
   isRunning: boolean
   requiresNPU: boolean
@@ -70,7 +70,7 @@ export interface DownloadTask {
   id: string
   toolId: string
   progress: number
-  speed: number // KB/s
+  speed: number
   status: 'pending' | 'downloading' | 'paused' | 'completed' | 'error'
   error?: string
 }
@@ -81,4 +81,10 @@ export interface AppSettings {
   autoCheckUpdates: boolean
   downloadPath: string
   cachePath: string
+}
+
+export interface SystemInfo {
+  os_version: string
+  computer_name: string
+  uptime: string
 }
