@@ -167,7 +167,7 @@ export function AIChat() {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full p-6">
       {/* Top bar: connection status + model selector */}
       <div className="mb-4 flex items-center gap-3 flex-wrap">
         {/* Connection indicator */}
