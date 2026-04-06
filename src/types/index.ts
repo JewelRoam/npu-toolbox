@@ -15,6 +15,7 @@ export interface GPUInfo {
   vram_used: string
   driver: string
   usage: number
+  temperature: number
 }
 
 export interface MemoryInfo {
