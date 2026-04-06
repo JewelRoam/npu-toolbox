@@ -138,6 +138,9 @@ public
 *.swo
 *~
 
+# Temp files
+.gm
+
 # OS
 .DS_Store
 .DS_Store?
