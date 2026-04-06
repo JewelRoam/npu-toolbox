@@ -38,6 +38,10 @@ fn main() {
             // Settings management
             commands::save_settings,
             commands::load_settings,
+            // Ollama proxy
+            commands::ollama_check,
+            commands::ollama_list_models,
+            commands::ollama_chat,
             // OpenVINO
             openvino::detect_openvino,
             openvino::get_recommended_models,

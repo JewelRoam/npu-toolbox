@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use log::{info, warn};
+use tauri::Emitter;
 
 use crate::npu_detector::{NPUDetector, NPUStatus};
 use crate::ps;
@@ -701,4 +702,107 @@ pub async fn load_settings() -> Result<String, String> {
     
     let content = std::fs::read_to_string(&config_file).map_err(|e| e.to_string())?;
     Ok(content)
+}
+
+// ============ Ollama Proxy Commands ============
+
+const OLLAMA_BASE: &str = "http://127.0.0.1:11434";
+
+/// Check if Ollama is running
+#[tauri::command]
+pub async fn ollama_check() -> Result<bool, String> {
+    Ok(
+        reqwest::Client::new()
+            .get(format!("{}/api/tags", OLLAMA_BASE))
+            .timeout(std::time::Duration::from_secs(3))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    )
+}
+
+/// List locally available Ollama models
+#[tauri::command]
+pub async fn ollama_list_models() -> Result<Vec<serde_json::Value>, String> {
+    let resp = reqwest::Client::new()
+        .get(format!("{}/api/tags", OLLAMA_BASE))
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| format!("Cannot connect to Ollama: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Ollama returned status {}", resp.status()));
+    }
+
+    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let models = body["models"].as_array().cloned().unwrap_or_default();
+    Ok(models)
+}
+
+/// Send a chat message to Ollama and stream the response via Tauri events.
+/// Emits "ollama-chat-chunk" with { content: string } for each token,
+/// and "ollama-chat-done" when complete.
+#[tauri::command]
+pub async fn ollama_chat(
+    app: tauri::AppHandle,
+    model: String,
+    messages: Vec<serde_json::Value>,
+) -> Result<(), String> {
+    let body = serde_json::json!({
+        "model": model,
+        "messages": messages,
+        "stream": true,
+    });
+
+    let resp = reqwest::Client::new()
+        .post(format!("{}/api/chat", OLLAMA_BASE))
+        .timeout(std::time::Duration::from_secs(300))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Ollama request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Ollama error {}: {}", status, text));
+    }
+
+    use futures_util::StreamExt;
+    let mut stream = resp.bytes_stream();
+    let mut buf = String::new();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        buf.push_str(&String::from_utf8_lossy(&chunk));
+
+        // Process complete JSON lines
+        while let Some(pos) = buf.find('\n') {
+            let line = buf[..pos].trim().to_string();
+            buf = buf[pos + 1..].to_string();
+
+            if line.is_empty() { continue; }
+            let parsed: serde_json::Value = match serde_json::from_str(&line) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            if let Some(content) = parsed["message"]["content"].as_str() {
+                if !content.is_empty() {
+                    let _ = app.emit("ollama-chat-chunk", serde_json::json!({ "content": content }));
+                }
+            }
+
+            if parsed["done"].as_bool() == Some(true) {
+                let _ = app.emit("ollama-chat-done", serde_json::json!({}));
+                return Ok(());
+            }
+        }
+    }
+
+    // If stream ended without explicit "done", emit done anyway
+    let _ = app.emit("ollama-chat-done", serde_json::json!({}));
+    Ok(())
 }
